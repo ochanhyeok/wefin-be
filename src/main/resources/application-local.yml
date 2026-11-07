@@ -101,7 +101,7 @@ batch:
     rejudge-max-limit: ${NEWS_REJUDGE_MAX_LIMIT:100}
 wefin-news:
   api:
-    base-url: https://dev-api.wefin.ai.kr
+    base-url: ${WEFIN_NEWS_BASE_URL:https://dev-api.wefin.ai.kr}
 
 websocket:
   allowed-origins:
