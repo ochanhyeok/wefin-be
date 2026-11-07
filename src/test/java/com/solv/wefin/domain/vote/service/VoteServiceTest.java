@@ -257,11 +257,7 @@ class VoteServiceTest {
     }
 
     private User createUser(UUID userId) {
-        User user = User.builder()
-                .email("vote@test.com")
-                .nickname("vote-user")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("vote@test.com", "vote-user", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
         return user;
     }

@@ -51,6 +51,9 @@ public enum ErrorCode {
     DUPLICATE_RESOURCE(409, "중복된 리소스입니다."),
     INTERNAL_SERVER_ERROR(500, "서버 내부 오류가 발생했습니다."),
 
+    // Admin
+    ADMIN_FORBIDDEN(403, "관리자 권한이 필요합니다."),
+
     // Auth - SIGNUP
     AUTH_EMAIL_DUPLICATED(409, "이미 사용 중인 이메일입니다."),
     AUTH_NICKNAME_DUPLICATED(409, "이미 사용 중인 닉네임입니다."),

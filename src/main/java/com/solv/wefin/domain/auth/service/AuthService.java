@@ -1,14 +1,18 @@
 package com.solv.wefin.domain.auth.service;
 
+import com.solv.wefin.domain.auth.dto.IssueAccountCommand;
+import com.solv.wefin.domain.auth.dto.IssuedAccountInfo;
 import com.solv.wefin.domain.auth.dto.LoginInfo;
 import com.solv.wefin.domain.auth.dto.SignupCommand;
 import com.solv.wefin.domain.auth.dto.SignupInfo;
 import com.solv.wefin.domain.auth.entity.RefreshToken;
 import com.solv.wefin.domain.auth.entity.User;
+import com.solv.wefin.domain.auth.entity.UserAccountType;
 import com.solv.wefin.domain.auth.entity.UserStatus;
 import com.solv.wefin.domain.auth.entity.VerificationPurpose;
 import com.solv.wefin.domain.auth.repository.RefreshTokenRepository;
 import com.solv.wefin.domain.auth.repository.UserRepository;
+import com.solv.wefin.domain.group.dto.GroupMemberInfo;
 import com.solv.wefin.domain.group.entity.Group;
 import com.solv.wefin.domain.group.entity.GroupMember;
 import com.solv.wefin.domain.group.repository.GroupMemberRepository;
@@ -55,10 +59,112 @@ public class AuthService {
 
     @Transactional
     public SignupInfo signup(SignupCommand command) {
-        String email = command.email();
-        String nickname = command.nickname();
-        String password = command.password();
+        NormalizedAccountInput input = normalizeAccountInput(
+                command.email(),
+                command.nickname(),
+                command.password()
+        );
 
+        emailVerificationService.validateVerifiedEmail(input.email(), VerificationPurpose.SIGNUP);
+
+        CreatedAccount createdAccount = createUserWithDefaults(
+                input,
+                UserAccountType.NORMAL
+        );
+        User savedUser = createdAccount.user();
+
+        emailVerificationService.consumeVerifiedEmail(savedUser.getEmail(), VerificationPurpose.SIGNUP);
+
+        return new SignupInfo(
+                savedUser.getUserId(),
+                savedUser.getEmail(),
+                savedUser.getNickname()
+        );
+    }
+
+    @Transactional
+    public IssuedAccountInfo issueAccount(IssueAccountCommand command) {
+        if (command.accountType() == null || command.accountType() == UserAccountType.NORMAL) {
+            throw new BusinessException(ErrorCode.AUTH_VALIDATION_FAILED);
+        }
+
+        NormalizedAccountInput input = normalizeAccountInput(
+                command.email(),
+                command.nickname(),
+                command.password()
+        );
+
+        CreatedAccount createdAccount = createUserWithDefaults(
+                input,
+                command.accountType()
+        );
+        Group activeGroup = createdAccount.activeGroup();
+
+        if (command.targetGroupId() != null) {
+            GroupMemberInfo activeGroupInfo = groupService.assignUserToSharedGroup(
+                    createdAccount.user().getUserId(),
+                    command.targetGroupId()
+            );
+
+            return new IssuedAccountInfo(
+                    createdAccount.user().getUserId(),
+                    createdAccount.user().getEmail(),
+                    createdAccount.user().getNickname(),
+                    createdAccount.user().getAccountType(),
+                    activeGroupInfo.groupId(),
+                    activeGroupInfo.groupName()
+            );
+        }
+
+        return new IssuedAccountInfo(
+                createdAccount.user().getUserId(),
+                createdAccount.user().getEmail(),
+                createdAccount.user().getNickname(),
+                createdAccount.user().getAccountType(),
+                activeGroup.getId(),
+                activeGroup.getName()
+        );
+    }
+
+    private CreatedAccount createUserWithDefaults(
+            NormalizedAccountInput input,
+            UserAccountType accountType
+    ) {
+        if (userRepository.existsByEmail(input.email())) {
+            throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
+        }
+        if (userRepository.existsByNickname(input.nickname())) {
+            throw new BusinessException(ErrorCode.AUTH_NICKNAME_DUPLICATED);
+        }
+
+        try {
+            String encodedPassword = passwordEncoder.encode(input.password());
+            User user = accountType == UserAccountType.NORMAL
+                    ? User.createNormalAccount(
+                            input.email(),
+                            input.nickname(),
+                            encodedPassword
+                    )
+                    : User.createIssuedAccount(
+                            input.email(),
+                            input.nickname(),
+                            encodedPassword,
+                            accountType
+                    );
+
+            User savedUser = userRepository.saveAndFlush(user);
+            Group homeGroup = groupService.createDefaultGroup(savedUser);
+            savedUser.setHomeGroup(homeGroup);
+            virtualAccountService.createAccount(savedUser.getUserId());
+
+            return new CreatedAccount(savedUser, homeGroup);
+
+        } catch (DataIntegrityViolationException e) {
+            throw mapConstraintViolation(e);
+        }
+    }
+
+    private NormalizedAccountInput normalizeAccountInput(String email, String nickname, String password) {
         if (email == null || nickname == null || password == null) {
             throw new BusinessException(ErrorCode.AUTH_VALIDATION_FAILED);
         }
@@ -74,40 +180,7 @@ public class AuthService {
             throw new BusinessException(ErrorCode.AUTH_VALIDATION_FAILED);
         }
 
-        emailVerificationService.validateVerifiedEmail(email, VerificationPurpose.SIGNUP);
-
-
-        if (userRepository.existsByEmail(email)) {
-            throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
-        }
-        if (userRepository.existsByNickname(nickname)) {
-            throw new BusinessException(ErrorCode.AUTH_NICKNAME_DUPLICATED);
-        }
-
-        try {
-            User user = User.builder()
-                    .email(email)
-                    .nickname(nickname)
-                    .password(passwordEncoder.encode(password))
-                    .build();
-
-            User savedUser = userRepository.saveAndFlush(user);
-
-            Group homeGroup = groupService.createDefaultGroup(savedUser);
-            savedUser.setHomeGroup(homeGroup);
-
-            virtualAccountService.createAccount(savedUser.getUserId());
-            emailVerificationService.consumeVerifiedEmail(savedUser.getEmail(), VerificationPurpose.SIGNUP);
-
-            return new SignupInfo(
-                    savedUser.getUserId(),
-                    savedUser.getEmail(),
-                    savedUser.getNickname()
-            );
-
-        } catch (DataIntegrityViolationException e) {
-            throw mapConstraintViolation(e);
-        }
+        return new NormalizedAccountInput(email, nickname, password);
     }
 
     @Transactional
@@ -338,5 +411,18 @@ public class AuthService {
         }
 
         return new BusinessException(ErrorCode.DUPLICATE_RESOURCE);
+    }
+
+    private record NormalizedAccountInput(
+            String email,
+            String nickname,
+            String password
+    ) {
+    }
+
+    private record CreatedAccount(
+            User user,
+            Group activeGroup
+    ) {
     }
 }

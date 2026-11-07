@@ -1,14 +1,18 @@
 package com.solv.wefin.domain.auth.service;
 
+import com.solv.wefin.domain.auth.dto.IssueAccountCommand;
+import com.solv.wefin.domain.auth.dto.IssuedAccountInfo;
 import com.solv.wefin.domain.auth.dto.LoginInfo;
 import com.solv.wefin.domain.auth.dto.SignupCommand;
 import com.solv.wefin.domain.auth.dto.SignupInfo;
 import com.solv.wefin.domain.auth.entity.RefreshToken;
 import com.solv.wefin.domain.auth.entity.User;
+import com.solv.wefin.domain.auth.entity.UserAccountType;
 import com.solv.wefin.domain.auth.entity.UserStatus;
 import com.solv.wefin.domain.auth.entity.VerificationPurpose;
 import com.solv.wefin.domain.auth.repository.RefreshTokenRepository;
 import com.solv.wefin.domain.auth.repository.UserRepository;
+import com.solv.wefin.domain.group.dto.GroupMemberInfo;
 import com.solv.wefin.domain.group.entity.Group;
 import com.solv.wefin.domain.group.entity.GroupMember;
 import com.solv.wefin.domain.group.repository.GroupMemberRepository;
@@ -100,11 +104,11 @@ class AuthServiceTest {
             when(userRepository.existsByNickname("testuser")).thenReturn(false);
             when(passwordEncoder.encode("pass1234")).thenReturn("encoded-password");
 
-            User savedUser = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User savedUser = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(savedUser, "userId", userId);
 
@@ -299,11 +303,11 @@ class AuthServiceTest {
 
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email(email)
-                    .nickname("testuser")
-                    .password("old-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    email,
+                    "testuser",
+                    "old-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -363,6 +367,220 @@ class AuthServiceTest {
     }
 
     @Nested
+    @DisplayName("issueAccount")
+    class IssueAccountTest {
+
+        @Test
+        @DisplayName("대회 계정 발급에 성공하면 홈 그룹과 가상계좌를 함께 생성한다")
+        void issueAccount_success_contest() {
+            UUID userId = UUID.randomUUID();
+
+            when(userRepository.existsByEmail("contest@example.com")).thenReturn(false);
+            when(userRepository.existsByNickname("contest-user")).thenReturn(false);
+            when(passwordEncoder.encode("pass1234")).thenReturn("encoded-password");
+
+            User savedUser = User.createIssuedAccount(
+                    "contest@example.com",
+                    "contest-user",
+                    "encoded-password",
+                    UserAccountType.CONTEST
+            );
+            ReflectionTestUtils.setField(savedUser, "userId", userId);
+
+            Group homeGroup = Group.createHomeGroup("contest-user의 그룹");
+            ReflectionTestUtils.setField(homeGroup, "id", 100L);
+
+            when(userRepository.saveAndFlush(any(User.class))).thenReturn(savedUser);
+            when(groupService.createDefaultGroup(savedUser)).thenReturn(homeGroup);
+
+            IssuedAccountInfo result = authService.issueAccount(
+                    new IssueAccountCommand(
+                            "  CONTEST@Example.com  ",
+                            "  contest-user  ",
+                            "pass1234",
+                            UserAccountType.CONTEST,
+                            null
+                    )
+            );
+
+            ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+            verify(userRepository).saveAndFlush(captor.capture());
+            verify(groupService).createDefaultGroup(savedUser);
+            verify(virtualAccountService).createAccount(userId);
+            verify(emailVerificationService, never()).validateVerifiedEmail(anyString(), any());
+            verify(emailVerificationService, never()).consumeVerifiedEmail(anyString(), any());
+
+            User capturedUser = captor.getValue();
+            assertAll(
+                    () -> assertThat(capturedUser.getEmail()).isEqualTo("contest@example.com"),
+                    () -> assertThat(capturedUser.getNickname()).isEqualTo("contest-user"),
+                    () -> assertThat(capturedUser.getPassword()).isEqualTo("encoded-password"),
+                    () -> assertThat(capturedUser.getAccountType()).isEqualTo(UserAccountType.CONTEST),
+                    () -> assertThat(result.userId()).isEqualTo(userId),
+                    () -> assertThat(result.email()).isEqualTo("contest@example.com"),
+                    () -> assertThat(result.nickname()).isEqualTo("contest-user"),
+                    () -> assertThat(result.accountType()).isEqualTo(UserAccountType.CONTEST),
+                    () -> assertThat(result.activeGroupId()).isEqualTo(100L),
+                    () -> assertThat(result.activeGroupName()).isEqualTo("contest-user의 그룹")
+            );
+        }
+
+        @Test
+        @DisplayName("비즈니스 계정 발급에 성공한다")
+        void issueAccount_success_business() {
+            UUID userId = UUID.randomUUID();
+
+            when(userRepository.existsByEmail("business@example.com")).thenReturn(false);
+            when(userRepository.existsByNickname("business-user")).thenReturn(false);
+            when(passwordEncoder.encode("pass1234")).thenReturn("encoded-password");
+
+            User savedUser = User.createIssuedAccount(
+                    "business@example.com",
+                    "business-user",
+                    "encoded-password",
+                    UserAccountType.BUSINESS
+            );
+            ReflectionTestUtils.setField(savedUser, "userId", userId);
+            Group homeGroup = Group.createHomeGroup("business-user의 그룹");
+            ReflectionTestUtils.setField(homeGroup, "id", 100L);
+
+            when(userRepository.saveAndFlush(any(User.class))).thenReturn(savedUser);
+            when(groupService.createDefaultGroup(savedUser)).thenReturn(homeGroup);
+
+            IssuedAccountInfo result = authService.issueAccount(
+                    new IssueAccountCommand(
+                            "business@example.com",
+                            "business-user",
+                            "pass1234",
+                            UserAccountType.BUSINESS,
+                            null
+                    )
+            );
+
+            assertThat(result.accountType()).isEqualTo(UserAccountType.BUSINESS);
+            verify(virtualAccountService).createAccount(userId);
+        }
+
+        @Test
+        @DisplayName("대상 그룹이 있으면 홈 그룹 생성 후 지정 공유 그룹에 배정한다")
+        void issueAccount_success_with_target_group() {
+            UUID userId = UUID.randomUUID();
+            Long targetGroupId = 10L;
+
+            when(userRepository.existsByEmail("contest@example.com")).thenReturn(false);
+            when(userRepository.existsByNickname("contest-user")).thenReturn(false);
+            when(passwordEncoder.encode("pass1234")).thenReturn("encoded-password");
+
+            User savedUser = User.createIssuedAccount(
+                    "contest@example.com",
+                    "contest-user",
+                    "encoded-password",
+                    UserAccountType.CONTEST
+            );
+            ReflectionTestUtils.setField(savedUser, "userId", userId);
+
+            Group homeGroup = Group.createHomeGroup("contest-user의 그룹");
+            ReflectionTestUtils.setField(homeGroup, "id", 100L);
+
+            when(userRepository.saveAndFlush(any(User.class))).thenReturn(savedUser);
+            when(groupService.createDefaultGroup(savedUser)).thenReturn(homeGroup);
+            when(groupService.assignUserToSharedGroup(userId, targetGroupId))
+                    .thenReturn(new GroupMemberInfo(
+                            userId,
+                            targetGroupId,
+                            "대회 A반",
+                            "contest-user",
+                            "MEMBER"
+                    ));
+
+            IssuedAccountInfo result = authService.issueAccount(
+                    new IssueAccountCommand(
+                            "contest@example.com",
+                            "contest-user",
+                            "pass1234",
+                            UserAccountType.CONTEST,
+                            targetGroupId
+                    )
+            );
+
+            InOrder inOrder = inOrder(groupService, virtualAccountService);
+            inOrder.verify(groupService).createDefaultGroup(savedUser);
+            inOrder.verify(virtualAccountService).createAccount(userId);
+            inOrder.verify(groupService).assignUserToSharedGroup(userId, targetGroupId);
+
+            assertAll(
+                    () -> assertThat(result.activeGroupId()).isEqualTo(targetGroupId),
+                    () -> assertThat(result.activeGroupName()).isEqualTo("대회 A반")
+            );
+        }
+
+        @Test
+        @DisplayName("NORMAL 계정은 관리자 발급 API로 생성할 수 없다")
+        void issueAccount_fail_when_account_type_normal() {
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> authService.issueAccount(
+                            new IssueAccountCommand(
+                                    "normal@example.com",
+                                    "normal-user",
+                                    "pass1234",
+                                    UserAccountType.NORMAL,
+                                    null
+                            )
+                    )
+            );
+
+            assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.AUTH_VALIDATION_FAILED);
+            verify(userRepository, never()).saveAndFlush(any(User.class));
+        }
+
+        @Test
+        @DisplayName("이메일이 중복되면 예외가 발생한다")
+        void issueAccount_fail_when_email_duplicated() {
+            when(userRepository.existsByEmail("contest@example.com")).thenReturn(true);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> authService.issueAccount(
+                            new IssueAccountCommand(
+                                    "contest@example.com",
+                                    "contest-user",
+                                    "pass1234",
+                                    UserAccountType.CONTEST,
+                                    null
+                            )
+                    )
+            );
+
+            assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.AUTH_EMAIL_DUPLICATED);
+            verify(userRepository, never()).saveAndFlush(any(User.class));
+        }
+
+        @Test
+        @DisplayName("닉네임이 중복되면 예외가 발생한다")
+        void issueAccount_fail_when_nickname_duplicated() {
+            when(userRepository.existsByEmail("contest@example.com")).thenReturn(false);
+            when(userRepository.existsByNickname("contest-user")).thenReturn(true);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> authService.issueAccount(
+                            new IssueAccountCommand(
+                                    "contest@example.com",
+                                    "contest-user",
+                                    "pass1234",
+                                    UserAccountType.CONTEST,
+                                    null
+                            )
+                    )
+            );
+
+            assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.AUTH_NICKNAME_DUPLICATED);
+            verify(userRepository, never()).saveAndFlush(any(User.class));
+        }
+    }
+
+    @Nested
     @DisplayName("login")
     class LoginTest {
 
@@ -372,11 +590,11 @@ class AuthServiceTest {
             UUID userId = UUID.randomUUID();
             OffsetDateTime expiresAt = OffsetDateTime.now().plusDays(14);
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
             ReflectionTestUtils.setField(user, "status", UserStatus.ACTIVE);
@@ -415,11 +633,11 @@ class AuthServiceTest {
             UUID userId = UUID.randomUUID();
             OffsetDateTime expiresAt = OffsetDateTime.now().plusDays(14);
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
             ReflectionTestUtils.setField(user, "status", UserStatus.ACTIVE);
@@ -466,11 +684,11 @@ class AuthServiceTest {
         void login_fail_when_password_not_matched() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
             ReflectionTestUtils.setField(user, "status", UserStatus.ACTIVE);
@@ -492,11 +710,11 @@ class AuthServiceTest {
         void login_fail_when_account_locked() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
             ReflectionTestUtils.setField(user, "status", UserStatus.LOCKED);
@@ -544,11 +762,11 @@ class AuthServiceTest {
         void changePassword_success() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-old-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-old-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -568,11 +786,11 @@ class AuthServiceTest {
         void changePassword_fail_when_password_mismatch() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-old-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-old-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -592,11 +810,11 @@ class AuthServiceTest {
         void changePassword_fail_when_same_password() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-old-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-old-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -636,11 +854,11 @@ class AuthServiceTest {
         void withdraw_success() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -673,11 +891,11 @@ class AuthServiceTest {
         void withdraw_transfers_leadership_when_leader_leaves_shared_group() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 
@@ -730,11 +948,11 @@ class AuthServiceTest {
         void withdraw_fail_when_password_mismatch() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder()
-                    .email("test@example.com")
-                    .nickname("testuser")
-                    .password("encoded-password")
-                    .build();
+            User user = User.createNormalAccount(
+                    "test@example.com",
+                    "testuser",
+                    "encoded-password"
+            );
 
             ReflectionTestUtils.setField(user, "userId", userId);
 

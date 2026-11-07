@@ -1,9 +1,7 @@
 package com.solv.wefin.web.chat.common.listener;
 
-import com.solv.wefin.domain.auth.repository.UserRepository;
 import com.solv.wefin.domain.chat.common.dto.info.ChatUnreadInfo;
 import com.solv.wefin.domain.chat.common.service.ChatReadStateService;
-import com.solv.wefin.domain.chat.globalChat.event.GlobalChatMessageCreatedEvent;
 import com.solv.wefin.domain.chat.groupChat.event.ChatMessageCreatedEvent;
 import com.solv.wefin.domain.group.entity.GroupMember;
 import com.solv.wefin.domain.group.repository.GroupMemberRepository;
@@ -28,35 +26,7 @@ public class ChatUnreadNotificationEventListener {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatReadStateService chatReadStateService;
-    private final UserRepository userRepository;
     private final GroupMemberRepository groupMemberRepository;
-
-    @Async
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void handleGlobalChatCreated(GlobalChatMessageCreatedEvent event) {
-        List<UUID> recipientIds = userRepository.findAllActiveUserIds().stream()
-                .filter(userId -> !userId.equals(event.getUserId()))
-                .toList();
-
-        for (UUID recipientId : recipientIds) {
-            try {
-                ChatUnreadInfo info = chatReadStateService.getUnreadInfoSnapshot(recipientId);
-                sendUnreadNotification(
-                        recipientId,
-                        ChatUnreadNotificationResponse.of(
-                                "GLOBAL",
-                                event.getMessageId(),
-                                null,
-                                event.getSender(),
-                                event.getContent(),
-                                info
-                        )
-                );
-            } catch (RuntimeException e) {
-                log.warn("chat unread snapshot failed userId={}", recipientId, e);
-            }
-        }
-    }
 
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

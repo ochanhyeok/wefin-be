@@ -56,7 +56,7 @@ class AuthTokenServiceTest {
     private AuthService authService;
 
     private User activeUser(UUID userId) {
-        User user = User.builder().build();
+        User user = User.createNormalAccount("test@example.com", "testuser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
         ReflectionTestUtils.setField(user, "status", UserStatus.ACTIVE);
         return user;
@@ -313,7 +313,7 @@ class AuthTokenServiceTest {
         void logout_fail_when_user_not_active() {
             UUID userId = UUID.randomUUID();
 
-            User user = User.builder().build();
+            User user = User.createNormalAccount("test@example.com", "testuser", "password");
             ReflectionTestUtils.setField(user, "userId", userId);
             ReflectionTestUtils.setField(user, "status", UserStatus.LOCKED);
 

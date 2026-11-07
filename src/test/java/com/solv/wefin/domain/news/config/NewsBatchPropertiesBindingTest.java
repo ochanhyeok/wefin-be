@@ -27,7 +27,8 @@ class NewsBatchPropertiesBindingTest {
                         "batch.news.tagging-size=100",
                         "batch.news.clustering-size=100",
                         "batch.news.summary-size=20",
-                        "batch.news.rejudge-max-limit=100")
+                        "batch.news.rejudge-max-limit=100",
+                        "batch.news.rejudge-batch-size=50")
                 .run(ctx -> {
                     assertThat(ctx).hasNotFailed();
                     NewsBatchProperties props = ctx.getBean(NewsBatchProperties.class);

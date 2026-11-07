@@ -226,6 +226,55 @@ public class GroupService {
     }
 
     @Transactional
+    public GroupMemberInfo assignUserToSharedGroup(UUID userId, Long groupId) {
+        User user = getUserForMembershipTransition(userId);
+
+        Group targetGroup = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.GROUP_NOT_FOUND));
+
+        if (targetGroup.isHomeGroup()) {
+            throw new BusinessException(ErrorCode.GROUP_HOME_JOIN_NOT_ALLOWED);
+        }
+
+        GroupMember currentActiveMember = groupMemberRepository
+                .findByUser_UserIdAndStatus(userId, GroupMember.GroupMemberStatus.ACTIVE)
+                .orElse(null);
+
+        if (currentActiveMember != null
+                && currentActiveMember.getGroup().getId().equals(targetGroup.getId())) {
+            throw new BusinessException(ErrorCode.GROUP_ALREADY_JOINED);
+        }
+
+        long activeMemberCount = groupMemberRepository.countByGroupAndStatus(
+                targetGroup,
+                GroupMember.GroupMemberStatus.ACTIVE
+        );
+
+        if (activeMemberCount >= MAX_GROUP_MEMBER_COUNT) {
+            throw new BusinessException(ErrorCode.GROUP_FULL);
+        }
+
+        if (currentActiveMember != null) {
+            currentActiveMember.deactivate();
+            groupMemberRepository.flush();
+        }
+
+        GroupMember targetMembership = groupMemberRepository
+                .findByUser_UserIdAndGroup_Id(userId, targetGroup.getId())
+                .orElse(null);
+
+        if (targetMembership != null) {
+            targetMembership.activate();
+            return GroupMemberInfo.from(targetMembership);
+        }
+
+        GroupMember newMember = GroupMember.createMember(user, targetGroup);
+        groupMemberRepository.save(newMember);
+
+        return GroupMemberInfo.from(newMember);
+    }
+
+    @Transactional
     public LeaveGroupInfo leaveGroup(Long groupId, UUID userId) {
         User user = getUserForMembershipTransition(userId);
 

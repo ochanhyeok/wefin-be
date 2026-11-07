@@ -53,7 +53,7 @@ class TaggingServiceTest {
     void setUp() {
         taggingService = new TaggingService(newsArticleRepository, openAiTaggingClient,
                 persistenceService, stockCodeValidator,
-                new NewsBatchProperties(500, 500, 500, 500, 50, 500));
+                new NewsBatchProperties(500, 500, 500, 500, 50, 500, 50));
         lenient().when(stockCodeValidator.loadStockMap())
                 .thenReturn(java.util.Map.of(
                         "005930", "삼성전자",

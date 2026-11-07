@@ -22,6 +22,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.solv.wefin.global.error.BusinessException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -47,7 +48,7 @@ class RelevanceRejudgeServiceTest {
 
     @BeforeEach
     void setUp() {
-        batchProperties = new NewsBatchProperties(500, 500, 500, 500, 50, TEST_REJUDGE_MAX_LIMIT);
+        batchProperties = new NewsBatchProperties(500, 500, 500, 500, 50, TEST_REJUDGE_MAX_LIMIT, 50);
         rejudgeService = new RelevanceRejudgeService(newsArticleRepository, openAiTaggingClient, persistenceService,
                 batchProperties);
     }
@@ -173,7 +174,7 @@ class RelevanceRejudgeServiceTest {
         List<NewsArticle> pending = List.of(
                 createArticle(1L, "t1", "c1"),
                 createArticle(2L, "t2", "c2"));
-        given(newsArticleRepository.findRejudgeTargets(RelevanceStatus.PENDING, PageRequest.of(0, 50)))
+        given(newsArticleRepository.findRejudgeTargets(eq(RelevanceStatus.PENDING), any(), eq(PageRequest.of(0, 50))))
                 .willReturn(pending);
         given(openAiTaggingClient.analyzeTags(anyString(), anyString()))
                 .willReturn(parseResult("FINANCIAL"));

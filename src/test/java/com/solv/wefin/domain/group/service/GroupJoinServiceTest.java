@@ -382,4 +382,118 @@ class GroupJoinServiceTest {
             verify(groupMemberRepository, never()).flush();
         }
     }
+
+    @Nested
+    @DisplayName("assignUserToSharedGroup")
+    class AssignUserToSharedGroupTest {
+
+        @Test
+        @DisplayName("사용자를 지정 SHARED 그룹에 배정한다")
+        void assignUserToSharedGroup_success() throws Exception {
+            UUID userId = UUID.randomUUID();
+            Group targetGroup = createGroup(1L, "대회 A반", GroupType.SHARED);
+            Group homeGroup = createGroup(100L, "홈 그룹", GroupType.HOME);
+            var user = createUser(userId, "contest@test.com", "대회유저", "pw");
+            GroupMember currentActiveHomeMember = createGroupMember(
+                    20L,
+                    user,
+                    homeGroup,
+                    GroupMember.GroupMemberRole.LEADER,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            );
+            GroupMember newMember = createGroupMember(
+                    21L,
+                    user,
+                    targetGroup,
+                    GroupMember.GroupMemberRole.MEMBER,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            );
+
+            when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
+            when(groupRepository.findByIdForUpdate(targetGroup.getId())).thenReturn(Optional.of(targetGroup));
+            when(groupMemberRepository.findByUser_UserIdAndStatus(
+                    userId,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            )).thenReturn(Optional.of(currentActiveHomeMember));
+            when(groupMemberRepository.countByGroupAndStatus(
+                    targetGroup,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            )).thenReturn(1L);
+            when(groupMemberRepository.findByUser_UserIdAndGroup_Id(userId, targetGroup.getId()))
+                    .thenReturn(Optional.empty());
+            when(groupMemberRepository.save(any(GroupMember.class))).thenReturn(newMember);
+
+            GroupMemberInfo result = groupService.assignUserToSharedGroup(userId, targetGroup.getId());
+
+            assertAll(
+                    () -> assertThat(result.groupId()).isEqualTo(targetGroup.getId()),
+                    () -> assertThat(result.groupName()).isEqualTo("대회 A반"),
+                    () -> assertThat(result.role()).isEqualTo("MEMBER"),
+                    () -> assertThat(currentActiveHomeMember.isActive()).isFalse()
+            );
+
+            verify(groupMemberRepository).flush();
+            verify(groupMemberRepository).save(any(GroupMember.class));
+        }
+
+        @Test
+        @DisplayName("HOME 그룹에는 관리자 배정을 할 수 없다")
+        void assignUserToSharedGroup_fail_when_home_group() throws Exception {
+            UUID userId = UUID.randomUUID();
+            Group homeGroup = createGroup(100L, "홈 그룹", GroupType.HOME);
+            var user = createUser(userId, "contest@test.com", "대회유저", "pw");
+
+            when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
+            when(groupRepository.findByIdForUpdate(homeGroup.getId())).thenReturn(Optional.of(homeGroup));
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> groupService.assignUserToSharedGroup(userId, homeGroup.getId())
+            );
+
+            assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GROUP_HOME_JOIN_NOT_ALLOWED);
+
+            verify(groupMemberRepository, never()).findByUser_UserIdAndStatus(any(), any());
+            verify(groupMemberRepository, never()).countByGroupAndStatus(any(), any());
+            verify(groupMemberRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("정원이 찬 그룹에는 관리자 배정을 할 수 없다")
+        void assignUserToSharedGroup_fail_when_group_full() throws Exception {
+            UUID userId = UUID.randomUUID();
+            Group targetGroup = createGroup(1L, "대회 A반", GroupType.SHARED);
+            Group homeGroup = createGroup(100L, "홈 그룹", GroupType.HOME);
+            var user = createUser(userId, "contest@test.com", "대회유저", "pw");
+            GroupMember currentActiveHomeMember = createGroupMember(
+                    20L,
+                    user,
+                    homeGroup,
+                    GroupMember.GroupMemberRole.LEADER,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            );
+
+            when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
+            when(groupRepository.findByIdForUpdate(targetGroup.getId())).thenReturn(Optional.of(targetGroup));
+            when(groupMemberRepository.findByUser_UserIdAndStatus(
+                    userId,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            )).thenReturn(Optional.of(currentActiveHomeMember));
+            when(groupMemberRepository.countByGroupAndStatus(
+                    targetGroup,
+                    GroupMember.GroupMemberStatus.ACTIVE
+            )).thenReturn(6L);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> groupService.assignUserToSharedGroup(userId, targetGroup.getId())
+            );
+
+            assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GROUP_FULL);
+            assertThat(currentActiveHomeMember.isActive()).isTrue();
+
+            verify(groupMemberRepository, never()).flush();
+            verify(groupMemberRepository, never()).save(any());
+        }
+    }
 }

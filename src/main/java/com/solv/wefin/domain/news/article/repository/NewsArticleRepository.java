@@ -43,13 +43,20 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     /**
      * 재판정 가능한 PENDING 기사를 id 오름차순으로 조회한다.
+     *
+     * 클러스터링 단계가 24시간 윈도우(`ClusteringService.HOURS_RANGE`) 안의 기사만 받기 때문에,
+     * 그 윈도우를 벗어난 PENDING은 재판정해 FINANCIAL로 바뀌어도 노출되지 않는다.
+     * 따라서 cron 호출은 노출 가능한 시간 범위 안의 기사로 한정해 LLM 비용 누수를 막는다.
+     * (admin 직접 호출 path인 {@code rejudgeByIds}는 이 제한을 받지 않는다)
      */
     @Query("SELECT a FROM NewsArticle a " +
             "WHERE a.relevance = :relevance " +
             "AND a.content IS NOT NULL AND TRIM(a.content) <> '' " +
+            "AND a.createdAt > :since " +
             "ORDER BY a.id ASC")
     List<NewsArticle> findRejudgeTargets(
             @Param("relevance") NewsArticle.RelevanceStatus relevance,
+            @Param("since") OffsetDateTime since,
             Pageable pageable);
 
     List<NewsArticle> findByCrawlStatusInAndCrawlRetryCountLessThanOrderByCollectedAtDesc(
@@ -57,10 +64,13 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     /**
      * 임베딩 대상 기사를 조회한다.
+     *
+     * 태깅이 완료되어 금융 관련성이 확정(FINANCIAL)된 기사만 후속 파이프라인에 진입시킨다.
+     * PENDING(미판정) 기사를 임베딩하면 클러스터에 무관 기사가 섞일 수 있으므로 제외한다.
      */
     @Query("SELECT a FROM NewsArticle a " +
             "WHERE a.crawlStatus = :crawlStatus " +
-            "AND a.relevance <> :excludedRelevance " +
+            "AND a.relevance = :requiredRelevance " +
             "AND a.embeddingRetryCount < :maxRetryCount " +
             "AND (a.embeddingStatus IN :embeddingStatuses " +
             "     OR (a.embeddingStatus = :processingStatus AND a.embeddingAttemptedAt < :staleBefore)) " +
@@ -71,7 +81,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("processingStatus") NewsArticle.EmbeddingStatus processingStatus,
             @Param("maxRetryCount") int maxRetryCount,
             @Param("staleBefore") OffsetDateTime staleBefore,
-            @Param("excludedRelevance") NewsArticle.RelevanceStatus excludedRelevance,
+            @Param("requiredRelevance") NewsArticle.RelevanceStatus requiredRelevance,
             Pageable pageable);
 
     /**
@@ -94,16 +104,19 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     /**
      * 클러스터링 대상 기사를 조회한다.
+     *
+     * 금융 관련성이 확정(FINANCIAL)된 기사만 클러스터링한다.
+     * PENDING(미판정) 기사가 섞이면 노출 시점에 무관 기사가 클러스터에 포함될 수 있으므로 제외한다.
      */
     @Query("SELECT a FROM NewsArticle a " +
             "WHERE a.embeddingStatus = :embeddingStatus " +
-            "AND a.relevance <> :excludedRelevance " +
+            "AND a.relevance = :requiredRelevance " +
             "AND NOT EXISTS (SELECT 1 FROM NewsClusterArticle nca WHERE nca.newsArticleId = a.id) " +
             "AND a.createdAt > :since " +
             "ORDER BY a.collectedAt DESC")
     List<NewsArticle> findClusteringTargets(
             @Param("embeddingStatus") NewsArticle.EmbeddingStatus embeddingStatus,
             @Param("since") OffsetDateTime since,
-            @Param("excludedRelevance") NewsArticle.RelevanceStatus excludedRelevance,
+            @Param("requiredRelevance") NewsArticle.RelevanceStatus requiredRelevance,
             Pageable pageable);
 }

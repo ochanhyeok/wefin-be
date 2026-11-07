@@ -399,11 +399,7 @@ class AiChatServiceTest {
     }
 
     private User createUser(UUID userId) {
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("ai-user")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "ai-user", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
         return user;
     }

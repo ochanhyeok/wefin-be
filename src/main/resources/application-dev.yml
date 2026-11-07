@@ -74,6 +74,10 @@ summary:
   collect:
     cron: ${SUMMARY_COLLECT_CRON:${NEWS_BATCH_CRON:0 */30 * * * *}}
 
+rejudge:
+  collect:
+    cron: ${REJUDGE_COLLECT_CRON:-}
+
 batch:
   news:
     crawl-size: ${NEWS_CRAWL_BATCH_SIZE:500}
@@ -82,6 +86,7 @@ batch:
     clustering-size: ${NEWS_CLUSTERING_BATCH_SIZE:500}
     summary-size: ${NEWS_SUMMARY_BATCH_SIZE:50}
     rejudge-max-limit: ${NEWS_REJUDGE_MAX_LIMIT:500}
+    rejudge-batch-size: ${NEWS_REJUDGE_BATCH_SIZE:50}
 wefin-news:
   api:
     base-url: ${WEFIN_NEWS_BASE_URL:https://dev-api.wefin.ai.kr}

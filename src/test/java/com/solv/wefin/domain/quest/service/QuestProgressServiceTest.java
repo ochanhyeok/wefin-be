@@ -128,11 +128,7 @@ class QuestProgressServiceTest {
             int targetValue,
             int progress
     ) {
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("quest-user")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "quest-user", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         QuestTemplate template = mock(QuestTemplate.class);

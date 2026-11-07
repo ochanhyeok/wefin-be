@@ -40,11 +40,7 @@ class UserServiceTest {
         UUID userId = UUID.randomUUID();
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-04-01T09:00:00+09:00");
 
-        User user = User.builder()
-                .email("user@example.com")
-                .nickname("희민")
-                .password("encodedPassword")
-                .build();
+        User user = User.createNormalAccount("user@example.com", "희민", "encodedPassword");
 
         ReflectionTestUtils.setField(user, "userId", userId);
         ReflectionTestUtils.setField(user, "createdAt", createdAt);
@@ -82,17 +78,9 @@ class UserServiceTest {
         UUID userId1 = UUID.randomUUID();
         UUID userId2 = UUID.randomUUID();
 
-        User user1 = User.builder()
-                .email("user1@example.com")
-                .nickname("유저1")
-                .password("pw1")
-                .build();
+        User user1 = User.createNormalAccount("user1@example.com", "유저1", "pw1");
 
-        User user2 = User.builder()
-                .email("user2@example.com")
-                .nickname("유저2")
-                .password("pw2")
-                .build();
+        User user2 = User.createNormalAccount("user2@example.com", "유저2", "pw2");
 
         ReflectionTestUtils.setField(user1, "userId", userId1);
         ReflectionTestUtils.setField(user2, "userId", userId2);

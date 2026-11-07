@@ -18,6 +18,8 @@ public interface BriefingCacheRepository extends JpaRepository<BriefingCache, UU
 
     List<BriefingCache> findByTargetDateIn(Collection<LocalDate> targetDates);
 
+    List<BriefingCache> findTop14ByTargetDateBeforeOrderByTargetDateDesc(LocalDate date);
+
     @Query("SELECT bc.targetDate " +
             "FROM BriefingCache bc " +
             "WHERE bc.targetDate IN :dates")

@@ -1,6 +1,8 @@
 package com.solv.wefin.domain.game.news.service;
 
 import com.solv.wefin.domain.game.news.dto.BriefingInfo;
+import com.solv.wefin.domain.game.news.entity.BriefingCache;
+import com.solv.wefin.domain.game.news.repository.BriefingCacheRepository;
 import com.solv.wefin.domain.game.openai.OpenAiBriefingClient.BriefingParts;
 import com.solv.wefin.domain.game.participant.entity.GameParticipant;
 import com.solv.wefin.domain.game.participant.repository.GameParticipantRepository;
@@ -20,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,6 +50,9 @@ class GameBriefingServiceTest {
 
     @Mock
     private BriefingService briefingService;
+
+    @Mock
+    private BriefingCacheRepository briefingCacheRepository;
 
     private static final UUID TEST_USER_ID = UUID.fromString("00000000-0000-4000-a000-000000000001");
     private static final Long TEST_GROUP_ID = 1L;
@@ -190,6 +196,73 @@ class GameBriefingServiceTest {
 
         // ACTIVE 턴이 없으면 하위 BriefingService는 호출되지 않아야 한다
         verify(briefingService, never()).getBriefingForDate(any());
+    }
+
+    // === getBriefingsForRoom 테스트 ===
+
+    @Test
+    @DisplayName("브리핑 목록 조회 성공 — 당일 + 과거 캐시 합산 반환")
+    void getBriefingsForRoom_withPastData() {
+        // Given
+        GameRoom gameRoom = createGameRoom();
+        UUID roomId = gameRoom.getRoomId();
+        GameParticipant participant = GameParticipant.createLeader(gameRoom, TEST_USER_ID);
+        GameTurn activeTurn = GameTurn.createFirst(gameRoom);
+        LocalDate turnDate = activeTurn.getTurnDate();
+
+        given(gameRoomRepository.findById(roomId))
+                .willReturn(Optional.of(gameRoom));
+        given(gameParticipantRepository.findByGameRoomAndUserId(gameRoom, TEST_USER_ID))
+                .willReturn(Optional.of(participant));
+        given(gameTurnRepository.findByGameRoomAndStatus(gameRoom, TurnStatus.ACTIVE))
+                .willReturn(Optional.of(activeTurn));
+        given(briefingService.getBriefingForDate(turnDate))
+                .willReturn(TEST_PARTS);
+
+        // 과거 캐시 2건
+        BriefingCache past1 = BriefingCache.create(turnDate.minusDays(1), "어제 개요", "어제 이슈", "어제 힌트");
+        BriefingCache past2 = BriefingCache.create(turnDate.minusDays(2), "그저께 개요", "그저께 이슈", "그저께 힌트");
+        given(briefingCacheRepository.findTop14ByTargetDateBeforeOrderByTargetDateDesc(turnDate))
+                .willReturn(List.of(past1, past2));
+
+        // When
+        List<BriefingInfo> result = gameBriefingService.getBriefingsForRoom(roomId, TEST_USER_ID);
+
+        // Then — 당일 1건 + 과거 2건 = 총 3건, 당일이 첫 번째
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).targetDate()).isEqualTo(turnDate);
+        assertThat(result.get(1).targetDate()).isEqualTo(turnDate.minusDays(1));
+        assertThat(result.get(2).targetDate()).isEqualTo(turnDate.minusDays(2));
+    }
+
+    @Test
+    @DisplayName("브리핑 목록 조회 성공 — 과거 캐시가 없으면 당일만 반환")
+    void getBriefingsForRoom_noPastData() {
+        // Given
+        GameRoom gameRoom = createGameRoom();
+        UUID roomId = gameRoom.getRoomId();
+        GameParticipant participant = GameParticipant.createLeader(gameRoom, TEST_USER_ID);
+        GameTurn activeTurn = GameTurn.createFirst(gameRoom);
+        LocalDate turnDate = activeTurn.getTurnDate();
+
+        given(gameRoomRepository.findById(roomId))
+                .willReturn(Optional.of(gameRoom));
+        given(gameParticipantRepository.findByGameRoomAndUserId(gameRoom, TEST_USER_ID))
+                .willReturn(Optional.of(participant));
+        given(gameTurnRepository.findByGameRoomAndStatus(gameRoom, TurnStatus.ACTIVE))
+                .willReturn(Optional.of(activeTurn));
+        given(briefingService.getBriefingForDate(turnDate))
+                .willReturn(TEST_PARTS);
+        given(briefingCacheRepository.findTop14ByTargetDateBeforeOrderByTargetDateDesc(turnDate))
+                .willReturn(List.of());
+
+        // When
+        List<BriefingInfo> result = gameBriefingService.getBriefingsForRoom(roomId, TEST_USER_ID);
+
+        // Then — 당일 1건만
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).targetDate()).isEqualTo(turnDate);
+        assertThat(result.get(0).marketOverview()).isEqualTo(TEST_PARTS.marketOverview());
     }
 
     // === 헬퍼 메서드 ===

@@ -7,6 +7,7 @@ import com.solv.wefin.domain.news.cluster.entity.NewsCluster.SummaryStatus;
 import com.solv.wefin.domain.news.cluster.entity.NewsClusterArticle;
 import com.solv.wefin.domain.news.cluster.repository.NewsClusterArticleRepository;
 import com.solv.wefin.domain.news.cluster.repository.NewsClusterRepository;
+import com.solv.wefin.domain.news.config.NewsBatchProperties;
 import com.solv.wefin.domain.news.summary.client.OpenAiClientException;
 import com.solv.wefin.domain.news.summary.client.OpenAiSummaryClient;
 import com.solv.wefin.domain.news.summary.dto.SummaryResult;
@@ -55,7 +56,7 @@ class SummaryServiceTest {
         summaryService = new SummaryService(
                 newsClusterRepository, clusterArticleRepository, newsArticleRepository,
                 openAiSummaryClient, outlierDetectionService, persistenceService,
-                new com.solv.wefin.domain.news.config.NewsBatchProperties(500, 500, 500, 500, 50, 500));
+                new NewsBatchProperties(500, 500, 500, 500, 50, 500, 50));
     }
 
     private NewsCluster createCluster(Long id, int articleCount, SummaryStatus status) {

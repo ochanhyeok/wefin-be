@@ -60,11 +60,7 @@ class QuestControllerTest {
         DailyQuest dailyQuest = DailyQuest.create(template, today, 3, 100);
         ReflectionTestUtils.setField(dailyQuest, "id", 11L);
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("questUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "questUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         UserQuest userQuest = UserQuest.assign(user, dailyQuest);
@@ -127,11 +123,7 @@ class QuestControllerTest {
         DailyQuest dailyQuest = DailyQuest.create(template, today, 3, 100);
         ReflectionTestUtils.setField(dailyQuest, "id", 11L);
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("questUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "questUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         UserQuest userQuest = UserQuest.assign(user, dailyQuest);

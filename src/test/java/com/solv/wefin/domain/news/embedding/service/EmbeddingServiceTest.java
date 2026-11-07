@@ -1,5 +1,6 @@
 package com.solv.wefin.domain.news.embedding.service;
 
+import com.solv.wefin.domain.news.config.NewsBatchProperties;
 import com.solv.wefin.domain.news.embedding.chunk.ArticleChunker;
 import com.solv.wefin.domain.news.embedding.client.OpenAiEmbeddingClient;
 import com.solv.wefin.domain.news.embedding.entity.ArticleEmbedding;
@@ -47,7 +48,7 @@ class EmbeddingServiceTest {
     void setUp() {
         embeddingService = new EmbeddingService(
                 newsArticleRepository, openAiEmbeddingClient, articleChunker, persistenceService,
-                new com.solv.wefin.domain.news.config.NewsBatchProperties(500, 500, 500, 500, 50, 500));
+                new NewsBatchProperties(500, 500, 500, 500, 50, 500, 50));
         ReflectionTestUtils.setField(embeddingService, "embeddingModel", "text-embedding-3-small");
         ReflectionTestUtils.setField(embeddingService, "embeddingVersion", "v1");
     }

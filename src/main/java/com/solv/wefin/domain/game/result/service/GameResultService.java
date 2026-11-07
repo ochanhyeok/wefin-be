@@ -15,9 +15,11 @@ import com.solv.wefin.domain.game.room.entity.RoomStatus;
 import com.solv.wefin.domain.game.room.repository.GameRoomRepository;
 import com.solv.wefin.domain.game.snapshot.dto.SnapshotInfo;
 import com.solv.wefin.domain.game.snapshot.repository.GamePortfolioSnapshotRepository;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @Transactional(readOnly = true)
 public class GameResultService {
 
@@ -40,6 +43,7 @@ public class GameResultService {
     private final GamePortfolioSnapshotRepository snapshotRepository;
     private final GameOrderRepository gameOrderRepository;
     private final UserRepository userRepository;
+    private final QuestProgressService questProgressService;
 
     /**
      * 게임 결과 조회.
@@ -101,6 +105,9 @@ public class GameResultService {
                             : i + 1;
 
             boolean isMine = r.getParticipant().getUserId().equals(userId);
+            if (isMine) {
+                handleGameRankSafely(userId, rank);
+            }
 
             rankings.add(new GameResultInfo.RankingEntry(
                     rank,
@@ -241,5 +248,13 @@ public class GameResultService {
                 .collect(Collectors.toMap(
                         user -> user.getUserId(),
                         user -> user.getNickname()));
+    }
+
+    private void handleGameRankSafely(UUID userId, int rank) {
+        try {
+            questProgressService.handleGameRank(userId, rank);
+        } catch (RuntimeException e) {
+            log.warn("寃뚯엫 寃곌낵 ?쒖쐞 ?섏뒪??諛섏쁺 ?ㅽ뙣 userId={}, rank={}", userId, rank, e);
+        }
     }
 }

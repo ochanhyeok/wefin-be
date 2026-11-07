@@ -107,11 +107,7 @@ class ChatMessageServiceTest {
         UUID userId = UUID.randomUUID();
         String content = "hello";
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("groupUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "groupUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         Group group = Group.builder().name("group-1").build();
@@ -187,11 +183,7 @@ class ChatMessageServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("groupUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "groupUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         Group group = Group.builder().name("group-1").build();
@@ -255,11 +247,7 @@ class ChatMessageServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("groupUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "groupUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         Group group = Group.builder().name("group-1").build();
@@ -328,11 +316,7 @@ class ChatMessageServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("groupUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "groupUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         Group group = Group.builder().name("group-1").build();
@@ -396,11 +380,7 @@ class ChatMessageServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("groupUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "groupUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         Group group = Group.builder().name("group").build();

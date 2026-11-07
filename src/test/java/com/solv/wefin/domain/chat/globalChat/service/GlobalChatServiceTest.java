@@ -58,11 +58,7 @@ public class GlobalChatServiceTest {
         UUID userId = UUID.randomUUID();
         String content = "hello";
 
-        User user = User.builder()
-                .email("test1@test.com")
-                .nickname("testUser")
-                .password("password1")
-                .build();
+        User user = User.createNormalAccount("test1@test.com", "testUser", "password1");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         GlobalChatMessage savedMessage = GlobalChatMessage.builder()
@@ -139,11 +135,7 @@ public class GlobalChatServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test1@test.com")
-                .nickname("testUser1")
-                .password("password1")
-                .build();
+        User user = User.createNormalAccount("test1@test.com", "testUser1", "password1");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         GlobalChatMessage message = GlobalChatMessage.builder()
@@ -233,11 +225,7 @@ public class GlobalChatServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test1@test.com")
-                .nickname("testUser1")
-                .password("password1")
-                .build();
+        User user = User.createNormalAccount("test1@test.com", "testUser1", "password1");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         GlobalChatMessage latestMessage = GlobalChatMessage.builder()

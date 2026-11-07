@@ -16,9 +16,11 @@ import com.solv.wefin.domain.game.stock.repository.StockDailyRepository;
 import com.solv.wefin.domain.game.turn.entity.GameTurn;
 import com.solv.wefin.domain.game.turn.entity.TurnStatus;
 import com.solv.wefin.domain.game.turn.repository.GameTurnRepository;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class GamePortfolioService {
@@ -41,6 +44,7 @@ public class GamePortfolioService {
     private final GameTurnRepository gameTurnRepository;
     private final GameHoldingRepository gameHoldingRepository;
     private final StockDailyRepository stockDailyRepository;
+    private final QuestProgressService questProgressService;
 
     public PortfolioInfo getPortfolio(UUID roomId, UUID userId) {
 
@@ -77,6 +81,8 @@ public class GamePortfolioService {
                 : totalAsset.subtract(seedMoney)
                         .multiply(new BigDecimal("100"))
                         .divide(seedMoney, 2, RoundingMode.HALF_UP);
+
+        handleProfitRateSafely(userId, profitRate);
 
         return new PortfolioInfo(seedMoney, cash, stockValue, totalAsset, profitRate);
     }
@@ -182,5 +188,13 @@ public class GamePortfolioService {
                         sd -> sd.getStockInfo().getSymbol(),
                         Function.identity()
                 ));
+    }
+
+    private void handleProfitRateSafely(UUID userId, BigDecimal profitRate) {
+        try {
+            questProgressService.handleProfitRate(userId, profitRate);
+        } catch (RuntimeException e) {
+            log.warn("수익률 퀘스트 반영 실패 userId={}, profitRate={}", userId, profitRate, e);
+        }
     }
 }

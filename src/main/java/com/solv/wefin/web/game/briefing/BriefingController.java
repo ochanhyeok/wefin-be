@@ -12,16 +12,17 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/rooms/{roomId}/briefing")
+@RequestMapping("/api/rooms/{roomId}")
 public class BriefingController {
 
     private final GameBriefingService gameBriefingService;
 
-    @GetMapping
+    @GetMapping("/briefing")
     public ResponseEntity<ApiResponse<BriefingResponse>> getBriefing(
             @AuthenticationPrincipal UUID userId,
             @PathVariable UUID roomId) {
@@ -30,5 +31,18 @@ public class BriefingController {
         BriefingResponse response = BriefingResponse.from(info);
 
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/briefings")
+    public ResponseEntity<ApiResponse<List<BriefingResponse>>> getBriefings(
+            @AuthenticationPrincipal UUID userId,
+            @PathVariable UUID roomId) {
+
+        List<BriefingInfo> infos = gameBriefingService.getBriefingsForRoom(roomId, userId);
+        List<BriefingResponse> responses = infos.stream()
+                .map(BriefingResponse::from)
+                .toList();
+
+        return ResponseEntity.ok(ApiResponse.success(responses));
     }
 }

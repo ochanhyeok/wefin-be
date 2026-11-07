@@ -15,8 +15,11 @@ import com.solv.wefin.domain.game.room.repository.GameRoomRepository;
 import com.solv.wefin.domain.game.stock.repository.StockDailyRepository;
 import com.solv.wefin.domain.game.turn.entity.GameTurn;
 import com.solv.wefin.domain.game.turn.repository.GameTurnRepository;
+import com.solv.wefin.domain.quest.entity.QuestEventType;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -33,6 +36,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class GameRoomService {
@@ -42,6 +46,7 @@ public class GameRoomService {
     private final GameTurnRepository gameTurnRepository;
     private final StockDailyRepository stockDailyRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final QuestProgressService questProgressService;
 
 
     //게임방 생성
@@ -87,6 +92,7 @@ public class GameRoomService {
         GameParticipant host = GameParticipant.createLeader(gameRoom, userId);
 
         gameParticipantRepository.save(host);
+        handleQuestEventSafely(userId, QuestEventType.CREATE_GAME_ROOM);
 
         return gameRoom;
     }
@@ -151,6 +157,7 @@ public class GameRoomService {
             }
             participant.rejoin();
             eventPublisher.publishEvent(new GameRoomEvent(roomId, GameRoomEvent.EventType.PARTICIPANT_JOINED));
+            handleQuestEventSafely(userId, QuestEventType.JOIN_GAME_ROOM);
             return participant;
         }
 
@@ -171,6 +178,7 @@ public class GameRoomService {
         }
 
         eventPublisher.publishEvent(new GameRoomEvent(roomId, GameRoomEvent.EventType.PARTICIPANT_JOINED));
+        handleQuestEventSafely(userId, QuestEventType.JOIN_GAME_ROOM);
         return member;
     }
 
@@ -266,6 +274,14 @@ public class GameRoomService {
 
         eventPublisher.publishEvent(new GameRoomEvent(roomId, GameRoomEvent.EventType.GAME_STARTED));
         return new StartRoomInfo(gameRoom, firstTurn);
+    }
+
+    private void handleQuestEventSafely(UUID userId, QuestEventType eventType) {
+        try {
+            questProgressService.handleEvent(userId, eventType);
+        } catch (RuntimeException e) {
+            log.warn("퀘스트 진행도 반영 실패 userId={}, eventType={}", userId, eventType, e);
+        }
     }
 }
 

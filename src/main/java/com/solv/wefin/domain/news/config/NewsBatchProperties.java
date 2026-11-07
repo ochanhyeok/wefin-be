@@ -20,9 +20,11 @@ import org.springframework.validation.annotation.Validated;
  * @param taggingSize     태깅 배치 1회당 처리 기사 수.
  *                        OpenAI chat API TPM(600K) 대비 1000건 × 평균 300토큰 ≈ 300K 기준 상한
  * @param clusteringSize  클러스터링 배치 1회당 처리 기사 수
- * @param summarySize     요약 배치 1회당 처리 클러스터 수.
- *                        OpenAI chat API 호출 비용 방어 (클러스터당 기사 N건 합산)
- * @param rejudgeMaxLimit 관련성 재판단 수동 실행 시 허용 상한
+ * @param summarySize       요약 배치 1회당 처리 클러스터 수.
+ *                          OpenAI chat API 호출 비용 방어 (클러스터당 기사 N건 합산)
+ * @param rejudgeMaxLimit   관련성 재판단 수동 실행 시 허용 상한 (admin endpoint 보호용)
+ * @param rejudgeBatchSize  관련성 재판단 cron 1회당 처리 기사 수.
+ *                          태깅 retry 한도 초과 등으로 PENDING으로 남은 기사를 정기 구제하는 용도
  */
 @Validated
 @ConfigurationProperties(prefix = "batch.news")
@@ -32,6 +34,7 @@ public record NewsBatchProperties(
         @Min(1) @Max(1000) int taggingSize,
         @Min(1) @Max(5000) int clusteringSize,
         @Min(1) @Max(200) int summarySize,
-        @Min(1) @Max(2000) int rejudgeMaxLimit
+        @Min(1) @Max(2000) int rejudgeMaxLimit,
+        @Min(1) @Max(2000) int rejudgeBatchSize
 ) {
 }

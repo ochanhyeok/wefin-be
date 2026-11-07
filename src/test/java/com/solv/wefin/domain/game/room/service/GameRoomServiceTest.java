@@ -13,6 +13,8 @@ import com.solv.wefin.domain.game.room.repository.GameRoomRepository;
 import com.solv.wefin.domain.game.stock.repository.StockDailyRepository;
 import com.solv.wefin.domain.game.turn.entity.GameTurn;
 import com.solv.wefin.domain.game.turn.repository.GameTurnRepository;
+import com.solv.wefin.domain.quest.entity.QuestEventType;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 import com.solv.wefin.domain.game.room.dto.CreateRoomCommand;
@@ -62,6 +64,9 @@ class GameRoomServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private QuestProgressService questProgressService;
+
     private static final UUID TEST_USER_ID = UUID.fromString("00000000-0000-4000-a000-000000000001");
     private static final Long TEST_GROUP_ID = 1L;
 
@@ -98,6 +103,7 @@ class GameRoomServiceTest {
 
         // GameParticipant(방장)가 저장됐는지 확인
         verify(gameParticipantRepository).save(any());
+        verify(questProgressService).handleEvent(TEST_USER_ID, QuestEventType.CREATE_GAME_ROOM);
     }
 
     @Test
@@ -269,6 +275,7 @@ class GameRoomServiceTest {
         assertThat(result.getGameRoom().getRoomId()).isEqualTo(roomId);
         assertThat(result.getGameRoom().getStatus()).isEqualTo(RoomStatus.WAITING);
         verify(gameParticipantRepository).save(any(GameParticipant.class));
+        verify(questProgressService).handleEvent(OTHER_USER_ID, QuestEventType.JOIN_GAME_ROOM);
     }
 
     @Test
@@ -293,6 +300,7 @@ class GameRoomServiceTest {
         assertThat(result.getGameRoom().getStatus()).isEqualTo(RoomStatus.IN_PROGRESS);
         verify(gameParticipantRepository).save(any(GameParticipant.class));
         verify(eventPublisher).publishEvent(new GameRoomEvent(roomId, GameRoomEvent.EventType.PARTICIPANT_JOINED));
+        verify(questProgressService).handleEvent(OTHER_USER_ID, QuestEventType.JOIN_GAME_ROOM);
     }
 
     @Test
@@ -319,6 +327,7 @@ class GameRoomServiceTest {
         assertThat(result.getStatus()).isEqualTo(ParticipantStatus.ACTIVE); // LEFT → ACTIVE
         verify(gameParticipantRepository, never()).save(any()); // 더티 체킹이니까 save 안 부름
         verify(eventPublisher).publishEvent(new GameRoomEvent(roomId, GameRoomEvent.EventType.PARTICIPANT_JOINED));
+        verify(questProgressService).handleEvent(OTHER_USER_ID, QuestEventType.JOIN_GAME_ROOM);
     }
 
     @Test

@@ -60,11 +60,7 @@ class GlobalChatWebSocketTest extends WebSocketIntegrationTestBase {
         AtomicReference<UUID> savedUserIdRef = new AtomicReference<>();
 
         requiresNewTx.executeWithoutResult(status -> {
-            User user = User.builder()
-                    .email("test1@test.com")
-                    .nickname("testUser")
-                    .password("password1")
-                    .build();
+            User user = User.createNormalAccount("test1@test.com", "testUser", "password1");
             userRepository.saveAndFlush(user);
 
             savedUserIdRef.set(user.getUserId());

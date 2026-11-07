@@ -168,7 +168,8 @@ public class AiChatService {
                 message.getUser().getUserId(),
                 message.getRole().name(),
                 message.getContent(),
-                message.getCreatedAt()
+                message.getCreatedAt(),
+                AiChatAnswerParser.parse(message.getRole().name(), message.getContent())
         );
     }
 }

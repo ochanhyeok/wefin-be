@@ -1,5 +1,6 @@
 package com.solv.wefin.domain.news.crawl;
 
+import com.solv.wefin.domain.news.config.NewsBatchProperties;
 import com.solv.wefin.domain.news.ingestion.service.ArticleCrawlPersistenceService;
 import com.solv.wefin.domain.news.ingestion.service.ArticleCrawlService;
 import com.solv.wefin.domain.news.ingestion.crawler.ArticleContentExtractor;
@@ -74,7 +75,7 @@ class ArticleCrawlServiceTest {
                 persistenceService,
                 List.of(extractor),
                 newsRestTemplate,
-                new com.solv.wefin.domain.news.config.NewsBatchProperties(500, 500, 500, 500, 50, 500)
+                new NewsBatchProperties(500, 500, 500, 500, 50, 500, 50)
         );
     }
 

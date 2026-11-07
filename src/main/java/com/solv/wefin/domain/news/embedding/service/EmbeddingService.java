@@ -85,7 +85,7 @@ public class EmbeddingService {
                 EmbeddingStatus.PROCESSING,
                 MAX_RETRY,
                 staleBefore,
-                RelevanceStatus.IRRELEVANT,
+                RelevanceStatus.FINANCIAL,
                 PageRequest.of(0, batchProperties.embeddingSize()));
     }
 

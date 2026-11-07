@@ -29,9 +29,7 @@ public final class GroupTestFixtures {
     }
 
     public static User createUser(UUID userId, String email, String nickname, String password) throws Exception {
-        Constructor<User> constructor = User.class.getDeclaredConstructor(String.class, String.class, String.class);
-        constructor.setAccessible(true);
-        User user = constructor.newInstance(email, nickname, password);
+        User user = User.createNormalAccount(email, nickname, password);
 
         Field userIdField = User.class.getDeclaredField("userId");
         userIdField.setAccessible(true);

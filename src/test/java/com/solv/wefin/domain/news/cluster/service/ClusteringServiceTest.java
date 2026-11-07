@@ -8,6 +8,7 @@ import com.solv.wefin.domain.news.cluster.repository.NewsClusterRepository;
 import com.solv.wefin.domain.news.cluster.service.ClusterMatchingService.MatchResult;
 import com.solv.wefin.domain.news.cluster.service.SuspiciousScoringService.ScoreResult;
 import com.solv.wefin.domain.news.cluster.service.SuspiciousScoringService.Verdict;
+import com.solv.wefin.domain.news.config.NewsBatchProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class ClusteringServiceTest {
         clusteringService = new ClusteringService(
                 newsArticleRepository, newsClusterRepository, articleVectorService,
                 clusterMatchingService, suspiciousScoringService, persistenceService,
-                new com.solv.wefin.domain.news.config.NewsBatchProperties(500, 500, 500, 500, 50, 500));
+                new NewsBatchProperties(500, 500, 500, 500, 50, 500, 50));
     }
 
     private NewsArticle createArticle(Long id) {

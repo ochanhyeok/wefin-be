@@ -209,11 +209,7 @@ class ChatReadStateServiceTest {
     }
 
     private User createUser(UUID userId) {
-        User user = User.builder()
-                .email("read@test.com")
-                .nickname("reader")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("read@test.com", "reader", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
         return user;
     }

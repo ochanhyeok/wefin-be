@@ -24,7 +24,7 @@ import java.util.Map;
 public class OpenAiTaggingClient {
 
     private static final String OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-    private static final int MAX_CONTENT_LENGTH = 3000;
+    private static final int MAX_CONTENT_LENGTH = 3000; //  태깅 본문용 최대 길이
 
     private static final String SYSTEM_PROMPT = """
             당신은 금융 뉴스 기사를 분석하여 태그를 추출하고 한 줄 요약을 작성하는 전문가입니다.

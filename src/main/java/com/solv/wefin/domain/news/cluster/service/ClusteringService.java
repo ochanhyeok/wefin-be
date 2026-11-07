@@ -127,7 +127,7 @@ public class ClusteringService {
         return newsArticleRepository.findClusteringTargets(
                 NewsArticle.EmbeddingStatus.SUCCESS,
                 since,
-                NewsArticle.RelevanceStatus.IRRELEVANT,
+                NewsArticle.RelevanceStatus.FINANCIAL,
                 PageRequest.of(0, batchProperties.clusteringSize()));
     }
 

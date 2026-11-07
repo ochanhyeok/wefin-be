@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -22,6 +23,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class RelevanceRejudgeService {
+
+    private static final int REJUDGE_WINDOW_HOURS = 24; // cron 기반 PENDING 재판정 윈도우
 
     private final NewsArticleRepository newsArticleRepository;
     private final OpenAiTaggingClient openAiTaggingClient;
@@ -55,6 +58,8 @@ public class RelevanceRejudgeService {
     /**
      * PENDING 상태의 기사를 배치 크기만큼 재판정한다.
      *
+     * 노출 가능한 시간 윈도우({@link #REJUDGE_WINDOW_HOURS}시간) 안의 기사로 한정한다.
+     *
      * @param limit 한 번에 처리할 최대 기사 수
      *              (허용 범위: 1 ~ {@code batch.news.rejudge-max-limit})
      * @return 재판정 처리 결과 요약
@@ -62,9 +67,11 @@ public class RelevanceRejudgeService {
     public RejudgeSummary rejudgePending(int limit) {
         validateLimit(limit);
 
+        OffsetDateTime since = OffsetDateTime.now().minusHours(REJUDGE_WINDOW_HOURS);
         List<NewsArticle> articles = newsArticleRepository.findRejudgeTargets(
-                RelevanceStatus.PENDING, PageRequest.of(0, limit));
-        log.info("관련성 재판정 시작(PENDING) — 대상: {}건 (limit: {})", articles.size(), limit);
+                RelevanceStatus.PENDING, since, PageRequest.of(0, limit));
+        log.info("관련성 재판정 시작(PENDING) — 대상: {}건 (limit: {}, since: {})",
+                articles.size(), limit, since);
 
         RejudgeResult result = rejudgeArticles(articles);
         RejudgeSummary summary = new RejudgeSummary(

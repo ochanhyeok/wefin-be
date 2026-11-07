@@ -16,6 +16,7 @@ import com.solv.wefin.domain.game.stock.repository.StockDailyRepository;
 import com.solv.wefin.domain.game.turn.entity.GameTurn;
 import com.solv.wefin.domain.game.turn.entity.TurnStatus;
 import com.solv.wefin.domain.game.turn.repository.GameTurnRepository;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +37,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class GamePortfolioServiceTest {
@@ -53,6 +55,8 @@ class GamePortfolioServiceTest {
     private GameHoldingRepository gameHoldingRepository;
     @Mock
     private StockDailyRepository stockDailyRepository;
+    @Mock
+    private QuestProgressService questProgressService;
 
     private static final UUID TEST_ROOM_ID = UUID.fromString("00000000-0000-4000-a000-000000000001");
     private static final UUID TEST_USER_ID = UUID.fromString("00000000-0000-4000-a000-000000000002");
@@ -86,6 +90,7 @@ class GamePortfolioServiceTest {
             assertThat(result.stockValue()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(result.totalAsset()).isEqualByComparingTo(new BigDecimal("10000000"));
             assertThat(result.profitRate()).isEqualByComparingTo(new BigDecimal("0.00"));
+            verify(questProgressService).handleProfitRate(TEST_USER_ID, new BigDecimal("0.00"));
         }
 
         @Test
@@ -118,6 +123,7 @@ class GamePortfolioServiceTest {
                     .multiply(new BigDecimal("100"))
                     .divide(new BigDecimal("10000000"), 2, RoundingMode.HALF_UP);
             assertThat(result.profitRate()).isEqualByComparingTo(expectedRate);
+            verify(questProgressService).handleProfitRate(TEST_USER_ID, expectedRate);
         }
 
         @Test
@@ -152,6 +158,7 @@ class GamePortfolioServiceTest {
             assertThat(result.totalAsset()).isEqualByComparingTo(new BigDecimal("4250000"));
             // profitRate = (4250000 - 10000000) / 10000000 × 100 = -57.50
             assertThat(result.profitRate()).isEqualByComparingTo(new BigDecimal("-57.50"));
+            verify(questProgressService).handleProfitRate(TEST_USER_ID, new BigDecimal("-57.50"));
         }
     }
 

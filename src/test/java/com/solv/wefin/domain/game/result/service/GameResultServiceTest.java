@@ -21,6 +21,7 @@ import com.solv.wefin.domain.game.snapshot.entity.GamePortfolioSnapshot;
 import com.solv.wefin.domain.game.snapshot.repository.GamePortfolioSnapshotRepository;
 import com.solv.wefin.domain.game.stock.entity.StockInfo;
 import com.solv.wefin.domain.game.turn.entity.GameTurn;
+import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -46,9 +47,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.withSettings;
 
 @ExtendWith(MockitoExtension.class)
@@ -69,6 +73,8 @@ class GameResultServiceTest {
     private GameOrderRepository gameOrderRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private QuestProgressService questProgressService;
 
     private static final UUID ROOM_ID = UUID.fromString("00000000-0000-4000-a000-000000000001");
     private static final UUID USER_A = UUID.fromString("00000000-0000-4000-a000-000000000002");
@@ -141,6 +147,7 @@ class GameResultServiceTest {
             assertThat(info.rankings().get(2).rank()).isEqualTo(3);
             assertThat(info.rankings().get(2).userName()).isEqualTo("재훈");
             assertThat(info.rankings().get(2).isMine()).isTrue();
+            verify(questProgressService).handleGameRank(USER_A, 3);
         }
 
         @Test
@@ -210,6 +217,7 @@ class GameResultServiceTest {
             assertThat(info.rankings()).isEmpty();
             assertThat(info.startDate()).isEqualTo(START_DATE);
             assertThat(info.endDate()).isEqualTo(END_DATE);
+            verify(questProgressService, never()).handleGameRank(any(), anyInt());
         }
 
         @Test

@@ -75,11 +75,7 @@ class UserQuestServiceTest {
         UUID userId = UUID.randomUUID();
         LocalDate today = LocalDate.now(KST);
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("questUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "questUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         DailyQuest dailyQuest1 = DailyQuest.create(mock(QuestTemplate.class), today, 3, 100);
@@ -147,11 +143,7 @@ class UserQuestServiceTest {
         // given
         UUID userId = UUID.randomUUID();
 
-        User user = User.builder()
-                .email("test@test.com")
-                .nickname("questUser")
-                .password("password")
-                .build();
+        User user = User.createNormalAccount("test@test.com", "questUser", "password");
         ReflectionTestUtils.setField(user, "userId", userId);
 
         QuestTemplate template = mock(QuestTemplate.class);
