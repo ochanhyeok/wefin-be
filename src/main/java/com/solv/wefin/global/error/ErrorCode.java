@@ -99,6 +99,7 @@ public enum ErrorCode {
     ORDER_STOCK_NOT_FOUND(400, "존재하지 않는 종목입니다."),
     ORDER_MARKET_CLOSED(400, "장 마감 시간에는 주문할 수 없습니다."),
     ORDER_INVALID_AMOUNT(400, "금액은 0보다 커야 합니다."),
+    ORDER_DUPLICATE_REQUEST(409, "이미 처리 중이거나 처리된 주문 요청입니다."),
 
     // Order - SELL
     ORDER_INSUFFICIENT_HOLDINGS(400, "보유 수량이 부족합니다."),
