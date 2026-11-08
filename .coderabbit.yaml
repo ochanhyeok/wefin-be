@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "ko-KR"
+tone_instructions: "한국어로 리뷰해줘. 문제를 지적할 때는 왜 문제인지와 어떤 상황에서 터지는지를 먼저 설명하고, 수정 코드는 꼭 필요할 때만 짧게 제시해줘."
+reviews:
+  auto_review:
+    enabled: true
