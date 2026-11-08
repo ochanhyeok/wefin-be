@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "ko-KR"
+tone_instructions: "한국어로 리뷰해줘. 증권사 시니어 서버 개발자 관점에서, 문제마다 어떤 입력·동시 상황에서 돈이나 주문이 틀어지는지 시나리오로 먼저 설명하고, 수정 코드는 꼭 필요할 때만 짧게 제시해줘."
+
+reviews:
+  profile: "assertive"
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    - "!**/build/**"
+    - "!**/*.min.js"
+
+  path_instructions:
+    - path: "src/main/java/**/domain/trading/**"
+      instructions: |
+        증권 거래 도메인 코드다. 아래를 우선순위대로 본다.
+        1. 금액 정확성: 금액·가격·수수료·세금은 BigDecimal만 쓰는지(double/float 금지), BigDecimal 비교에 equals 대신 compareTo를 쓰는지, 나눗셈·곱셈에 scale과 RoundingMode가 명시됐는지, 수수료·세금의 반올림/절사 기준과 적용 순서가 일관된지.
+        2. 정합성: 잔고·보유수량 변경과 주문·체결 기록이 같은 트랜잭션에서 함께 커밋되는지. 한쪽만 반영될 수 있는 경로(예외, 조기 return, 비동기 이벤트)가 있는지. 잔고·보유수량이 음수가 될 수 있는지.
+        3. 동시성: 같은 계좌·같은 종목에 동시 요청이 올 때 lost update나 초과 매도·초과 매수가 가능한지. 락 획득 순서가 일관돼 데드락을 피하는지. 락 범위와 트랜잭션 범위가 필요 이상으로 넓어 처리량을 떨어뜨리지 않는지.
+        4. 멱등성: 재시도·중복 클릭·네트워크 타임아웃 후 재요청에 주문이 두 번 생기지 않는지. Redis 등 1차 방어가 실패해도 DB 제약으로 최종 차단되는지.
+        5. 트랜잭션: @Transactional 안에서 외부 API·Redis·메시지 발행을 호출하는지(커밋 전 부작용, 롤백 불일치). 이벤트는 커밋 이후(AFTER_COMMIT) 처리되는지.
+        6. 상태 전이: 주문 상태(PENDING, PARTIAL, FILLED, CANCELLED 등) 전이가 허용된 경로로만 일어나는지. 이미 체결·취소된 주문을 정정·취소할 수 있는 구멍이 있는지. 부분 체결 시 잔량·평균단가 계산이 맞는지.
+        7. 에러 처리: 비즈니스 오류는 BusinessException + ErrorCode로 던지는지. 예외를 삼켜 성공처럼 응답하는 곳이 없는지.
+        8. 계층: domain 패키지에 HTTP·Controller·Request/Response DTO 의존이 들어오지 않았는지.
+
+    - path: "src/main/java/**/domain/trading/{order,matching}/**"
+      instructions: |
+        주문·체결 핫패스다. 시세 틱마다 실행되는 쿼리가 인덱스를 타는지, FOR UPDATE로 잡는 행 수와 보유 시간이 최소인지, N+1 조회가 없는지 본다. 시장가 체결 시 사용하는 현재가가 언제 시점 값인지(stale 시세로 체결될 위험)도 확인한다.
+
+    - path: "src/main/java/**/domain/trading/{account,portfolio,trade}/**"
+      instructions: |
+        원장 성격의 데이터다. 잔고·보유수량은 반드시 체결 기록으로 재계산 가능한 값이어야 한다. 직접 덮어쓰기(set) 대신 증감 연산과 검증이 쓰였는지, 이력 없이 값만 바뀌는 경로가 없는지 본다.
+
+    - path: "src/main/java/**/web/**"
+      instructions: |
+        API 계층이다. 요청한 사용자가 해당 계좌·주문의 소유자인지 검증하는지(IDOR) 반드시 확인한다. 수량·가격 입력에 음수·0·과도하게 큰 값·소수점 검증이 있는지, 멱등키 헤더 누락 시 동작이 정의돼 있는지 본다. 응답·로그에 토큰·비밀번호·계좌 식별 정보가 노출되지 않는지 확인한다.
+
+    - path: "src/main/java/**/domain/trading/{market,stock,indices,dart}/**"
+      instructions: |
+        외부 API(한국투자증권, DART, Yahoo) 연동이다. 타임아웃, 재시도 횟수와 백오프, 장애 시 폴백, 호출 제한(rate limit) 대응이 있는지 본다. 외부 장애가 주문·체결 트랜잭션을 막거나 잘못된 시세로 체결되게 하지 않는지 확인한다.
+
+    - path: "src/main/resources/db/migration/**"
+      instructions: |
+        운영 DB에 적용되는 Flyway 마이그레이션이다. 큰 테이블에 CREATE INDEX를 걸 때 쓰기 락이 걸리는지(CONCURRENTLY 필요 여부, 그 경우 트랜잭션 밖 실행 설정), NOT NULL 컬럼 추가 시 기존 데이터 처리, 이미 배포된 마이그레이션을 수정하지 않았는지, 버전 번호 충돌이 없는지 본다. 부분 인덱스 조건이 실제 쿼리의 WHERE 절과 맞는지 확인한다.
+
+    - path: "src/test/**"
+      instructions: |
+        테스트다. 동시성 테스트가 실제로 경합을 만드는지(CountDownLatch 등으로 동시에 출발시키는지), 결과 검증이 잔고·수량·주문 건수까지 확인하는지 본다. 금액 경계값(0, 최소 단위, 잔고와 정확히 같은 금액, 1원 부족)과 실패 경로 테스트가 있는지, 벤치마크의 측정 방법(데이터 분포, 워밍업, 반복 횟수)이 결론을 뒷받침하는지 확인한다.
+
+    - path: "load-test/**"
+      instructions: |
+        k6 부하 테스트다. 시나리오가 실제 사용 패턴(동시 중복 요청, 서로 다른 사용자)을 반영하는지, 성공 판정 기준(check, threshold)이 명확한지, 결과로 주장하는 수치를 이 스크립트로 재현할 수 있는지 본다.

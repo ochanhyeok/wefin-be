@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -58,12 +59,15 @@ public class OrderController {
 
 	@PostMapping("/buy")
 	public ApiResponse<OrderResponse> buy(@AuthenticationPrincipal UUID userId,
-										  @Valid @RequestBody OrderBuyRequest request) {
+										  @Valid @RequestBody OrderBuyRequest request,
+										  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 		VirtualAccount account = accountService.getAccountByUserId(userId);
 		Stock stock = stockService.findByStockCode(request.stockCode().strip())
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
+		String key = (idempotencyKey != null && !idempotencyKey.isBlank())
+			? idempotencyKey : UUID.randomUUID().toString();
 		OrderInfo orderInfo = orderService.buyMarket(account.getVirtualAccountId(),
-			stock.getId(), request.quantity());
+			stock.getId(), request.quantity(), key);
 		OrderResponse response = OrderResponse.from(orderInfo);
 		return ApiResponse.success(response);
 	}
