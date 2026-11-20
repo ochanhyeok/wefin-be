@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.BDDMockito.*;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,6 +15,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import com.solv.wefin.domain.quest.entity.QuestEventType;
 import com.solv.wefin.domain.quest.service.QuestProgressService;
@@ -26,6 +29,7 @@ import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.entity.OrderStatus;
 import com.solv.wefin.domain.trading.order.entity.OrderType;
+import com.solv.wefin.domain.trading.order.repository.OrderIdempotencyRepository;
 import com.solv.wefin.domain.trading.order.repository.OrderRepository;
 import com.solv.wefin.domain.trading.portfolio.entity.Currency;
 import com.solv.wefin.domain.trading.portfolio.entity.Portfolio;
@@ -54,13 +58,26 @@ class OrderServiceTest {
 	private ApplicationEventPublisher eventPublisher;
 	@Mock
 	private QuestProgressService questProgressService;
+	@Mock
+	private OrderIdempotencyRepository orderIdempotencyRepository;
+	@Mock
+	private StringRedisTemplate redisTemplate;
+	@Mock
+	private ValueOperations<String, String> valueOperations;
 
 	@InjectMocks
 	private OrderService orderService;
 
+	/** 매수 경로는 멱등키 선점(Redis SETNX)을 먼저 통과해야 한다 */
+	private void givenIdempotencyClaimSucceeds() {
+		given(redisTemplate.opsForValue()).willReturn(valueOperations);
+		given(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class))).willReturn(true);
+	}
+
 	@Test
 	void 매수_성공() {
 		// given
+		givenIdempotencyClaimSucceeds();
 		Stock mockStock = mock(Stock.class);
 
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
@@ -85,6 +102,9 @@ class OrderServiceTest {
 
 	@Test
 	void 수량_0_이하() {
+		// given
+		givenIdempotencyClaimSucceeds();
+
 		// when & then
 		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 0))
 			.isInstanceOf(BusinessException.class);
@@ -93,6 +113,7 @@ class OrderServiceTest {
 	@Test
 	void 예수금_부족() {
 		// given
+		givenIdempotencyClaimSucceeds();
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
 		given(mockStock.getStockCode()).willReturn("005930");
