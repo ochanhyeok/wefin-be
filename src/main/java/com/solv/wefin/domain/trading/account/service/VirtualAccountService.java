@@ -63,14 +63,28 @@ public class VirtualAccountService {
 	}
 
 	/**
-	 * 잔고 차감
+	 * 잔고 차감 — 원자적 조건부 UPDATE.
+	 *
+	 * <p>기존엔 비관적 락으로 읽어(check) 엔티티에서 검증 후 차감(act)했으나, 이 check-then-act 는
+	 * 읽은 값이 쓰기 시점엔 stale 이라 동시 매수 시 Lost Update 위험이 있었다. 3-way 벤치마크
+	 * (비관적/낙관적/원자적) 결과 원자적 조건부 UPDATE 가 전 경합도 최고 처리량이라, 단순 잔고 가드인
+	 * 이 경로를 원자적으로 전환했다. (deposit/포트폴리오 등 다단계 경로는 비관적 락 유지.)</p>
 	 */
 	@Transactional
 	public VirtualAccount deductBalance(Long virtualAccountId, BigDecimal amount) {
-		VirtualAccount account = getAccountForUpdate(virtualAccountId);
+		if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+			throw new BusinessException(ErrorCode.ORDER_INVALID_AMOUNT);
+		}
 
-		account.deduct(amount);
-		return account;
+		int updated = accountRepository.deductBalanceIfEnough(virtualAccountId, amount);
+		if (updated == 0) {
+			// 0행 = 계좌 없음 or 잔고 부족 → 원인을 구분해 정확한 예외를 던진다 (원자적 UPDATE 의 트레이드오프)
+			boolean exists = accountRepository.existsById(virtualAccountId);
+			throw new BusinessException(
+				exists ? ErrorCode.ORDER_INSUFFICIENT_BALANCE : ErrorCode.ACCOUNT_NOT_FOUND);
+		}
+
+		return getAccount(virtualAccountId);
 	}
 
 	/**

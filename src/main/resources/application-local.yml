@@ -18,6 +18,11 @@ spring:
           timeout: 5000
           writetimeout: 5000
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:wefin_dev}
     username: ${DB_USERNAME:postgres}
@@ -101,7 +106,7 @@ batch:
     rejudge-batch-size: ${NEWS_REJUDGE_BATCH_SIZE:30}
 wefin-news:
   api:
-    base-url: https://dev-api.wefin.ai.kr
+    base-url: ${WEFIN_NEWS_BASE_URL:https://dev-api.wefin.ai.kr}
 
 websocket:
   allowed-origins:

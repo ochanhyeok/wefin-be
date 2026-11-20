@@ -31,6 +31,7 @@ import com.solv.wefin.domain.trading.market.client.HantuMarketClient;
 import com.solv.wefin.domain.trading.market.client.HantuTokenManager;
 import com.solv.wefin.domain.trading.market.client.dto.HantuPriceApiResponse;
 import com.solv.wefin.domain.trading.order.service.OrderService;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,6 +46,8 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 	private VirtualAccountService accountService;
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+	@Autowired
+	private StringRedisTemplate redisTemplate;
 
 	@MockitoBean
 	private HantuMarketClient hantuMarketClient;
@@ -92,9 +95,14 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 	void cleanUp() {
 		jdbcTemplate.execute("DELETE FROM trade");
 		jdbcTemplate.execute("DELETE FROM orders");
+		jdbcTemplate.execute("DELETE FROM order_idempotency");
 		jdbcTemplate.execute("DELETE FROM portfolio");
 		jdbcTemplate.execute("DELETE FROM virtual_account");
 		jdbcTemplate.update("DELETE FROM users WHERE email = ?", email);
+		var keys = redisTemplate.keys("idempotency:order:*");
+		if (keys != null && !keys.isEmpty()) {
+			redisTemplate.delete(keys);
+		}
 	}
 
 	@Test
@@ -267,5 +275,88 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 
 		assertThat(finalQuantity).isGreaterThanOrEqualTo(0);
 		log.info("성공: {}, 실패: {}, 잔고: {}", successCount, failCount, result.getBalance());
+	}
+
+	@Test
+	void 멱등키_다르면_동시_요청은_각각_별개_주문으로_생성된다() throws Exception {
+		// given - 멱등키 없이(=요청마다 새 키) 동시 5건. 서로 다른 의도로 간주되어 모두 정상 주문이어야 한다.
+		int requests = 5;
+		ExecutorService executor = Executors.newFixedThreadPool(requests);
+		CountDownLatch ready = new CountDownLatch(requests);
+		CountDownLatch start = new CountDownLatch(1);
+		CountDownLatch done = new CountDownLatch(requests);
+		AtomicInteger success = new AtomicInteger(0);
+		AtomicInteger rejected = new AtomicInteger(0);
+
+		// when - 5개 스레드가 같은 출발선에서 동시에 매수 (각자 다른 멱등키 = 별개 의도)
+		for (int i = 0; i < requests; i++) {
+			executor.submit(() -> {
+				try {
+					ready.countDown();
+					start.await();
+					orderService.buyMarket(accountId, stockId, 1);   // 3-arg = 내부에서 새 키 발급
+					success.incrementAndGet();
+				} catch (Exception e) {
+					rejected.incrementAndGet();
+					log.info("거부됨: {}", e.getMessage());
+				} finally {
+					done.countDown();
+				}
+			});
+		}
+		ready.await();
+		start.countDown();              // 동시에 출발
+		done.await(10, TimeUnit.SECONDS);
+		executor.shutdown();
+
+		// then - 키가 다르므로 5건 모두 별개 주문으로 생성됨 (정상 빠른 재주문)
+		Integer orderCount = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM orders WHERE virtual_account_id = ?", Integer.class, accountId);
+		log.info("[멱등키 다름] 동시 {}건 → 성공 {}건 / 거부 {}건 / 생성된 주문 {}건",
+				requests, success.get(), rejected.get(), orderCount);
+		assertThat(orderCount).isEqualTo(requests);   // 다른 의도 → 5건 다 생성
+	}
+
+	@Test
+	void 멱등키_같으면_동시_중복요청도_주문_1건만_생성된다() throws Exception {
+		// given - 같은 의도(따닥): 동일 멱등키를 5개 동시 요청이 공유한다 (더블클릭/네트워크 재시도)
+		int duplicateRequests = 5;
+		String sameKey = "TADAK-" + UUID.randomUUID();
+		ExecutorService executor = Executors.newFixedThreadPool(duplicateRequests);
+		CountDownLatch ready = new CountDownLatch(duplicateRequests);
+		CountDownLatch start = new CountDownLatch(1);
+		CountDownLatch done = new CountDownLatch(duplicateRequests);
+		AtomicInteger success = new AtomicInteger(0);
+		AtomicInteger rejected = new AtomicInteger(0);
+
+		// when - 5개 스레드가 같은 멱등키로 동시에 매수 (진짜 따닥)
+		for (int i = 0; i < duplicateRequests; i++) {
+			executor.submit(() -> {
+				try {
+					ready.countDown();
+					start.await();
+					orderService.buyMarket(accountId, stockId, 1, sameKey);   // 전부 같은 키
+					success.incrementAndGet();
+				} catch (Exception e) {
+					rejected.incrementAndGet();
+					log.info("멱등 차단: {}", e.getMessage());
+				} finally {
+					done.countDown();
+				}
+			});
+		}
+		ready.await();
+		start.countDown();
+		done.await(10, TimeUnit.SECONDS);
+		executor.shutdown();
+
+		// then - 멱등키 선점으로 1건만 성공, 나머지는 차단 → 주문 1건
+		Integer orderCount = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM orders WHERE virtual_account_id = ?", Integer.class, accountId);
+		log.info("[멱등키 같음] 같은 키 동시 {}건 → 성공 {}건 / 거부 {}건 / 생성된 주문 {}건",
+				duplicateRequests, success.get(), rejected.get(), orderCount);
+		assertThat(orderCount).isEqualTo(1);                       // 따닥 차단
+		assertThat(success.get()).isEqualTo(1);
+		assertThat(rejected.get()).isEqualTo(duplicateRequests - 1);
 	}
 }

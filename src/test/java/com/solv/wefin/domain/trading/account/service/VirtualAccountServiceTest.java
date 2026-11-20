@@ -44,22 +44,24 @@ class VirtualAccountServiceTest {
 
 	@Test
 	void 차감_정상() {
-		// given
+		// given — 원자적 조건부 UPDATE 가 1행 갱신(차감 성공) 후 갱신된 계좌를 재조회
 		VirtualAccount account = new VirtualAccount(UUID.randomUUID());
-		when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account));
+		when(accountRepository.deductBalanceIfEnough(1L, new BigDecimal("1200000"))).thenReturn(1);
+		when(accountRepository.findById(1L)).thenReturn(Optional.of(account));
 
 		// when
-		accountService.deductBalance(1L, new BigDecimal("1200000"));
+		VirtualAccount result = accountService.deductBalance(1L, new BigDecimal("1200000"));
 
-		// then
-		assertThat(account.getBalance()).isEqualTo(new BigDecimal("8800000"));
+		// then — 실제 차감은 DB(원자적 UPDATE)가 수행, 서비스는 조건부 UPDATE 호출 + 재조회 반환을 보장
+		assertThat(result).isSameAs(account);
+		verify(accountRepository).deductBalanceIfEnough(1L, new BigDecimal("1200000"));
 	}
 
 	@Test
 	void 잔고_부족_시_예외() {
-		// given
-		VirtualAccount account = new VirtualAccount(UUID.randomUUID());
-		when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account));
+		// given — 0행 갱신(잔고 부족), 계좌는 존재
+		when(accountRepository.deductBalanceIfEnough(1L, new BigDecimal("12000000"))).thenReturn(0);
+		when(accountRepository.existsById(1L)).thenReturn(true);
 
 		// when & then
 		assertThatThrownBy(() -> accountService.deductBalance(1L, new BigDecimal("12000000")))
