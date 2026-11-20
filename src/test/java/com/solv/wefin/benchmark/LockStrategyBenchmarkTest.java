@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -35,6 +36,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>스레드 1/5/10/20/50 으로 경합도를 바꿔 교차점을 본다. version 컬럼은 낙관적 비교용(프로덕션은 비관적).</p>
  */
+@Tag("benchmark")
 @DisplayName("비관적 vs 낙관적 vs 원자적 동시성 벤치마크 (실제 스키마)")
 class LockStrategyBenchmarkTest {
 

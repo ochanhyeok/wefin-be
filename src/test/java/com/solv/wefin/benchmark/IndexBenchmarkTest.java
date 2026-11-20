@@ -10,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
@@ -41,6 +42,7 @@ import org.testcontainers.utility.DockerImageName;
  * }</pre>
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@Tag("benchmark")
 @DisplayName("인덱스 유무 쿼리 성능 벤치마크 (스케일별)")
 class IndexBenchmarkTest {
 
