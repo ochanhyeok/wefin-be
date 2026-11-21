@@ -71,7 +71,7 @@ class OrderControllerTest {
 
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
-		given(orderService.buyMarket(anyLong(), anyLong(), anyInt()))
+		given(orderService.buyMarket(anyLong(), anyLong(), anyInt(), anyString()))
 			.willReturn(mockOrderInfo);
 
 		// when & then
