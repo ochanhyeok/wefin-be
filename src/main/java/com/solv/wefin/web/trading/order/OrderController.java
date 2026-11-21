@@ -8,6 +8,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,9 +26,11 @@ import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.order.dto.OrderCancelInfo;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
+import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.dto.OrderSearchCondition;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderStatus;
+import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.domain.trading.stock.entity.Stock;
 import com.solv.wefin.domain.trading.stock.service.StockService;
@@ -54,22 +57,28 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
 	private final OrderService orderService;
+	private final IdempotentOrderFacade idempotentOrderFacade;
 	private final VirtualAccountService accountService;
 	private final StockService stockService;
 
+	/** 첫 응답을 재전송했음을 알리는 헤더. 클라이언트는 이 값으로 "새 주문이 아니라 이미 된 주문"임을 구분한다. */
+	static final String REPLAYED_HEADER = "Idempotent-Replayed";
+
 	@PostMapping("/buy")
-	public ApiResponse<OrderResponse> buy(@AuthenticationPrincipal UUID userId,
+	public ResponseEntity<ApiResponse<OrderResponse>> buy(@AuthenticationPrincipal UUID userId,
 										  @Valid @RequestBody OrderBuyRequest request,
 										  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 		VirtualAccount account = accountService.getAccountByUserId(userId);
 		Stock stock = stockService.findByStockCode(request.stockCode().strip())
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
-		String key = (idempotencyKey != null && !idempotencyKey.isBlank())
-			? idempotencyKey : UUID.randomUUID().toString();
-		OrderInfo orderInfo = orderService.buyMarket(account.getVirtualAccountId(),
-			stock.getId(), request.quantity(), key);
-		OrderResponse response = OrderResponse.from(orderInfo);
-		return ApiResponse.success(response);
+		OrderResult result = idempotentOrderFacade.buyMarket(account.getVirtualAccountId(),
+			stock.getId(), request.quantity(), idempotencyKey);
+		OrderResponse response = OrderResponse.from(result.info());
+		ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+		if (result.replayed()) {
+			builder.header(REPLAYED_HEADER, "true");
+		}
+		return builder.body(ApiResponse.success(response));
 	}
 
 	@PostMapping("/sell")

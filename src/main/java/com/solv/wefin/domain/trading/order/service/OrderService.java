@@ -14,11 +14,8 @@ import com.solv.wefin.domain.quest.entity.QuestEventType;
 import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.domain.trading.common.TradingConstants;
 import lombok.extern.slf4j.Slf4j;
-import java.time.Duration;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +30,6 @@ import com.solv.wefin.domain.trading.order.dto.OrderSearchCondition;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.entity.OrderType;
-import com.solv.wefin.domain.trading.order.repository.OrderIdempotencyRepository;
 import com.solv.wefin.domain.trading.order.repository.OrderRepository;
 import com.solv.wefin.domain.trading.portfolio.entity.Currency;
 import com.solv.wefin.domain.trading.portfolio.entity.Portfolio;
@@ -51,11 +47,10 @@ import lombok.RequiredArgsConstructor;
 @Slf4j
 public class OrderService {
 
-	private static final String IDEMPOTENCY_KEY_PREFIX = "idempotency:order:";
-	private static final Duration IDEMPOTENCY_TTL = Duration.ofMinutes(15);
+	static final int ORDER_TX_TIMEOUT_SECONDS = 10;
 
 	private final OrderRepository orderRepository;
-	private final OrderIdempotencyRepository orderIdempotencyRepository;
+	private final OrderIdempotencyService orderIdempotencyService;
 	private final PortfolioService portfolioService;
 	private final VirtualAccountService virtualAccountService;
 	private final MarketPriceProvider marketPriceProvider;
@@ -63,25 +58,23 @@ public class OrderService {
 	private final TradeService tradeService;
 	private final ApplicationEventPublisher eventPublisher;
 	private final QuestProgressService questProgressService;
-	private final StringRedisTemplate redisTemplate;
-
-	/** 멱등키 없이 호출되는 경로 — 요청마다 새 키를 발급한다(중복 식별 불가, 기존 동작 유지). */
-	@Transactional
-	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity) {
-		return buyMarket(virtualAccountId, stockId, quantity, UUID.randomUUID().toString());
-	}
 
 	/**
-	 * 시장가 매수 — 멱등키로 따닥(중복 요청)을 방어한다.
+	 * 멱등 시장가 매수 — {@link IdempotentOrderFacade} 가 키를 선점한 뒤 호출한다.
 	 *
-	 * <p>트랜잭션 시작 시 멱등키를 PROCESSING 으로 선점 INSERT 한다. 같은 키로 들어온 동시 요청은
-	 * DB UNIQUE 가 직렬화해 정확히 하나만 통과하고, 나머지는 부수효과(잔고 차감) 발생 전에 거부된다.</p>
+	 * <p>주문과 멱등 완료 기록(DONE)을 한 트랜잭션에 묶는다. 둘 사이에 서버가 죽어도 "주문은 됐는데 기록은 PROCESSING"
+	 * 같은 어긋남이 생기지 않는다. 타임아웃은 선점 리스({@code OrderIdempotencyService.PROCESSING_LEASE})보다
+	 * 짧아야 한다: 리스가 먼저 끝나면 다른 요청이 같은 키를 재선점해 이중 주문이 된다.</p>
 	 */
-	@Transactional
+	@Transactional(timeout = ORDER_TX_TIMEOUT_SECONDS)
 	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
-		// 0. 멱등 선점 (따닥 방어) — 이미 처리 중/처리된 키면 거부
-		claimIdempotency(idempotencyKey);
+		OrderInfo info = buyMarket(virtualAccountId, stockId, quantity);
+		orderIdempotencyService.markDone(virtualAccountId, idempotencyKey, info);
+		return info;
+	}
 
+	@Transactional
+	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity) {
 		// 1. 수량 검증
 		validateQuantity(quantity);
 
@@ -122,30 +115,8 @@ public class OrderService {
 
 		questProgressService.handleEvent(account.getUserId(), QuestEventType.BUY_STOCK);
 
-		// 멱등 레코드에 결과(주문) 기록 → DONE
-		orderIdempotencyRepository.markDone(idempotencyKey, order.getOrderId());
-
 		return new OrderInfo(order, stock.getStockCode(), stock.getStockName(), currentPrice,
 			totalAmount, BigDecimal.ZERO, BigDecimal.ZERO, account.getBalance());
-	}
-
-	/**
-	 * 멱등키 선점. 처음 보는 키면 PROCESSING 으로 INSERT 하고, 이미 있으면 중복으로 거부한다.
-	 * 동시 따닥은 DB UNIQUE 가 직렬화하므로 정확히 한 요청만 선점에 성공한다.
-	 */
-	private void claimIdempotency(String idempotencyKey) {
-		// 1차: Redis SETNX — DB까지 가지 않고 차단 (멀티 인스턴스에서 DB 부하 감소)
-		String redisKey = IDEMPOTENCY_KEY_PREFIX + idempotencyKey;
-		Boolean acquired = redisTemplate.opsForValue().setIfAbsent(redisKey, "1", IDEMPOTENCY_TTL);
-		if (Boolean.FALSE.equals(acquired)) {
-			throw new BusinessException(ErrorCode.ORDER_DUPLICATE_REQUEST);
-		}
-		// 2차: DB UNIQUE 백스톱 — Redis 장애·TTL 만료 시에도 중복 차단 보장
-		try {
-			orderIdempotencyRepository.insertClaim(idempotencyKey);
-		} catch (DataIntegrityViolationException e) {
-			throw new BusinessException(ErrorCode.ORDER_DUPLICATE_REQUEST);
-		}
 	}
 
 	@Transactional
