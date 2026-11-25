@@ -30,7 +30,9 @@ public class ReconciliationScheduler {
 			}
 			throw e;
 		} catch (RuntimeException e) {
-			// 실패는 ReconciliationService 가 FAILED 로 기록했다. 스케줄러 스레드까지 죽이지 않는다.
+			// 검사 중 실패는 ReconciliationService 가 FAILED 로 기록하지만, 시작(RUNNING INSERT) 단계 실패는 기록이 없다.
+			// 여기서도 남기고, 스케줄러 스레드까지 죽이지 않는다.
+			log.error("[대사] 정기 실행 실패", e);
 		}
 	}
 }

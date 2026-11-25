@@ -79,6 +79,8 @@
 | 정기 실행 | 평일 16:10 (장 마감 15:30, 일일 스냅샷 15:40 이후) |
 | 여러 인스턴스가 동시에 실행 | `reconciliation_run`에 `status = 'RUNNING'` 부분 유니크 인덱스. 두 번째 INSERT가 막혀 409. 분산 락(ShedLock, Redis) 없이 DB 제약으로 해결 |
 | 실행 중 서버가 죽음 | RUNNING이 30분 넘으면 다음 실행 시작 시 FAILED로 정리. 정리하지 않으면 유니크 인덱스 때문에 이후 대사가 영원히 시작되지 않는다 |
+| 죽은 줄 알았던 실행이 다시 깨어남 | 종료 기록 전에 실행 행을 `SELECT ... FOR UPDATE`로 잠그고 RUNNING인지 확인. 이미 FAILED면 성공으로 덮지 않고 검사 트랜잭션(불일치 행 포함)을 롤백한다. 실패 기록도 RUNNING일 때만 남겨 원래 중단 사유를 덮어쓰지 않는다 |
+| 시작 자체가 실패 (DB 연결 등) | 실행 기록이 없으므로 스케줄러가 예외를 로그로 남긴다 |
 | 검사 중 예외 | 시작·검사·종료를 각자 트랜잭션으로 나눴다. 검사가 롤백돼도 FAILED와 원인은 남는다 |
 | 다시 돌리기 | `POST /api/admin/reconciliation/runs`. 대사는 읽고 기록만 하므로 몇 번을 다시 돌려도 안전하다 |
 | 결과 확인 | `GET /api/admin/reconciliation/runs` |
@@ -93,27 +95,31 @@
 
 `AdminAuthorizationFilter`는 `/api/admin/accounts`만 관리자 권한을 검사하고, `SecurityConfig`는 나머지 `/api/admin/**`를 `permitAll`로 둔다 (팀 커밋 `7bba5bcc`에서 의도적으로 좁힘).
 대사 실행 API를 이 설정에 그대로 두면 누구나 대사를 실행할 수 있어서, 검사 경로 목록에 `/api/admin/reconciliation`을 추가하고 `authenticated`로 바꿨다.
+경로 판정은 요청 URI에서 context path를 뺀 값으로 한다. 원래는 URI 전체를 비교해서, 비루트 context path(`/wefin/api/admin/...`)로 배포하면 검사가 통째로 빠졌다 (PR #9 재리뷰).
 다른 `/api/admin/**`(뉴스 배치, 시세 관리 등)가 인증 없이 열려 있는 문제는 팀 결정이라 이 포크에서 바꾸지 않았다. 따로 공유할 사항이다.
 
 ## 4. 검증
 
-`LedgerReconciliationTest` (Testcontainers PostgreSQL 16, 8개)
+`LedgerReconciliationTest` (Testcontainers PostgreSQL 16, 9개)
 
 | 시나리오 | 기대 |
 |---|---|
 | 시장가 매수·매도, 지정가 예약·정정·차액 환불·취소 환불, 매도 체결, 퀘스트 보상 | 불일치 0, 잔고 = 원장 합계, 원장 종류 9가지 모두 기록 |
 | 원장을 거치지 않고 잔고 +1,000 | 계좌 불일치 1건 (차이 1,000), 잔고는 그대로 |
 | 취소 환불 원장 1줄 삭제 | 계좌 불일치 + 해당 주문번호의 주문 불일치 |
-| 4개 계좌 연속 매수 중 대사 10회 | 모든 회차 불일치 0 |
+| 4개 계좌 연속 매수 중 대사 10회. 첫 회차는 검사 트랜잭션 안에서 계좌마다 주문 1건이 더 커밋될 때까지 기다려 겹침을 보장 | 모든 회차 불일치 0, 계좌마다 잔고 = 원장 합계, 보유 수량 = 주문 수 |
 | RUNNING이 이미 있음 | 409 `RECONCILIATION_ALREADY_RUNNING` |
 | 31분 전 RUNNING | FAILED로 정리 후 새 실행 성공 |
 | 주문 대사 쿼리 예외 | FAILED + 원인 기록, 다음 실행 정상 |
+| 검사 도중 다른 실행이 이 실행을 FAILED로 정리 | 성공으로 덮지 않음, 원래 중단 사유 유지, 불일치 행 0 |
 | 트랜잭션 밖에서 원장 기록 | `IllegalTransactionStateException` |
 
-`AdminAuthorizationFilterTest`: 대사 경로에 일반 사용자 403.
-전체 테스트 902개 통과.
+`AdminAuthorizationFilterTest`: 대사 경로에 일반 사용자 403, `/wefin` context path 아래에서도 관리자 검사 수행.
+`OrderServiceTest`: 매수·매도·취소·정정 성공 시 원장 기록의 계좌·유형·금액·주문 ID 검증.
 
 ## 5. 한계와 다음 단계
+
+- V57은 기초 잔액 적재와 원장 기록 시작을 한 번에 한다. 구버전 인스턴스가 함께 떠 있으면 그 인스턴스의 잔고 변경은 원장 없이 커밋돼 불일치로 남는다. 이 포크는 단일 인스턴스이고 운영 배포 이력이 없어 그대로 뒀다. 운영에 적용한다면 구버전을 모두 내린 뒤(쓰기 중단 구간) V57과 새 버전을 올리거나, 새 버전 배포 완료 후 `OPENING_BALANCE`를 다시 적재해야 한다 (PR #9 재리뷰).
 
 - 매 실행마다 원장 전체를 합산한다. 원장이 커지면 일별 마감 잔액(체크포인트)을 남기고 그 이후분만 더하는 방식으로 바꿔야 한다.
 - 보유 수량(portfolio)은 원장 대상이 아니다. 수량도 체결 내역과 대사할 수 있다.

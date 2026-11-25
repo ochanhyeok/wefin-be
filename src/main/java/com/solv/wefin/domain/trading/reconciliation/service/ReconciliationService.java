@@ -88,7 +88,11 @@ public class ReconciliationService {
 
 		queryRepository.saveAll(mismatches);
 
-		ReconciliationRun run = runRepository.findById(runId).orElseThrow();
+		ReconciliationRun run = runRepository.findByIdForUpdate(runId).orElseThrow();
+		if (!run.isRunning()) {
+			// 제한 시간을 넘겨 다른 실행이 FAILED 로 정리했다. 성공으로 덮지 않고, 저장한 불일치도 함께 롤백한다
+			throw new IllegalStateException("제한 시간을 넘겨 중단 처리된 실행입니다. runId=" + runId);
+		}
 		run.succeed(checkedAccounts, accountRows.size(), checkedOrders, orderRows.size());
 		return run;
 	}
@@ -96,7 +100,9 @@ public class ReconciliationService {
 	private void markFailed(Long runId, RuntimeException cause) {
 		try {
 			transactionTemplate.executeWithoutResult(status ->
-				runRepository.findById(runId).ifPresent(run -> run.fail(summarize(cause))));
+				runRepository.findByIdForUpdate(runId)
+					.filter(ReconciliationRun::isRunning)   // 이미 FAILED 로 정리된 실행의 원인을 덮어쓰지 않는다
+					.ifPresent(run -> run.fail(summarize(cause))));
 		} catch (RuntimeException e) {
 			// 실패 기록조차 못 남기면 RUNNING 으로 남고, 다음 실행이 제한 시간 뒤 FAILED 로 정리한다
 			log.error("[대사] 실패 기록 실패 runId={}", runId, e);

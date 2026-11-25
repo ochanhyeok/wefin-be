@@ -14,12 +14,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.solv.wefin.domain.quest.entity.QuestEventType;
 import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.trading.matching.event.OrderMatchedEvent;
 import com.solv.wefin.domain.trading.order.dto.IdempotencyClaim;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
@@ -58,6 +60,8 @@ class OrderServiceTest {
 	@Mock
 	private com.solv.wefin.domain.trading.ledger.service.CashLedgerService cashLedgerService;
 
+	private static final Long ORDER_ID = 100L;
+
 	@InjectMocks
 	private OrderService orderService;
 
@@ -72,14 +76,15 @@ class OrderServiceTest {
 		given(mockStock.getStockCode()).willReturn("005930");
 		given(virtualAccountService.deductBalance(eq(1L), any()))
 			.willReturn(new VirtualAccount(UUID.randomUUID()));
-		given(orderRepository.save(any()))
-			.willAnswer(invocation -> invocation.getArgument(0));
+		given(orderRepository.save(any())).willAnswer(invocation -> withId(invocation.getArgument(0)));
 
 		// when
 		orderService.buyMarket(1L, 1L, 20, PRICE);
 
 		// then
 		verify(orderRepository).save(any());
+		// 170,000 × 20 = 3,400,000 + 수수료 510
+		verify(cashLedgerService).record(1L, CashLedgerType.MARKET_BUY, new BigDecimal("-3400510"), ORDER_ID);
 		verify(tradeService).createBuyTrade(any(), eq(1L), eq(1L), eq(20), any(), any(), any(), any(), any());
 		verify(portfolioService).addHolding(eq(1L), eq(1L), eq(20), any(), any());
 		verify(eventPublisher).publishEvent(any(OrderMatchedEvent.class));
@@ -166,13 +171,14 @@ class OrderServiceTest {
 		given(portfolioService.getPortfolioForUpdate(1L, 1L))
 			.willReturn(mockPortfolio);
 
-		given(orderRepository.save(any()))
-			.willAnswer(invocation -> invocation.getArgument(0));
+		given(orderRepository.save(any())).willAnswer(invocation -> withId(invocation.getArgument(0)));
 
 		// when
 		orderService.sellMarket(1L, 1L, 10, PRICE);
 
 		// then
+		// 170,000 × 10 = 1,700,000 - 수수료 255 - 세금 3,060
+		verify(cashLedgerService).record(1L, CashLedgerType.MARKET_SELL, new BigDecimal("1696685"), ORDER_ID);
 		verify(tradeService).createSellTrade(any(), eq(1L), eq(1L), eq(10),
 			any(), any(), any(), any(), any(), any(), any());
 		verify(portfolioService).deductQuantity(eq(1L), eq(1L), eq(10));
@@ -231,6 +237,8 @@ class OrderServiceTest {
 
 			// then
 			verify(mockAccount).deposit(BigDecimal.valueOf(500075));
+			verify(cashLedgerService).record(1L, CashLedgerType.ORDER_CANCEL_REFUND, BigDecimal.valueOf(500075),
+				order.getOrderId());
 			assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
 		}
 
@@ -348,6 +356,8 @@ class OrderServiceTest {
 			// then
 			assertThat(order.getRequestPrice()).isEqualByComparingTo(BigDecimal.valueOf(60000));
 			verify(mockAccount).deduct(BigDecimal.valueOf(100015));
+			verify(cashLedgerService).record(1L, CashLedgerType.ORDER_MODIFY_ADJUST, BigDecimal.valueOf(-100015),
+				order.getOrderId());
 		}
 
 		@Test
@@ -392,5 +402,10 @@ class OrderServiceTest {
 				.isInstanceOf(BusinessException.class)
 				.hasMessage(ErrorCode.ORDER_NOT_FOUND.getMessage());
 		}
+	}
+
+	private static Order withId(Order order) {
+		ReflectionTestUtils.setField(order, "orderId", ORDER_ID);
+		return order;
 	}
 }

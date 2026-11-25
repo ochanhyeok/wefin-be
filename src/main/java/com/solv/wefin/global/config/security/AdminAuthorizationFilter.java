@@ -69,7 +69,8 @@ public class AdminAuthorizationFilter extends OncePerRequestFilter {
     }
 
     private boolean isAdminPath(HttpServletRequest request) {
-        String path = request.getRequestURI();
+        // SecurityConfig 의 경로 매칭과 같은 기준(context path 제외)으로 본다. 비루트 배포에서 검사가 빠지지 않게
+        String path = request.getRequestURI().substring(request.getContextPath().length());
         return PROTECTED_PATH_PREFIXES.stream()
                 .anyMatch(prefix -> path.equals(prefix) || path.startsWith(prefix + "/"));
     }
