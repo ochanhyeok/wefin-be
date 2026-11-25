@@ -120,6 +120,8 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 		ReconciliationRun run = reconciliationService.run(ReconciliationRun.Trigger.MANUAL);
 
 		assertThat(run.getStatus()).isEqualTo(ReconciliationRun.Status.SUCCEEDED);
+		assertThat(jdbcTemplate.queryForObject(   // 시작·종료 모두 DB 시계
+			"SELECT finished_at >= started_at FROM reconciliation_run WHERE run_id = ?", Boolean.class, run.getRunId())).isTrue();
 		assertThat(mismatchesOf(run, account)).isEmpty();
 		assertThat(balance(account)).isEqualByComparingTo(ledgerSum(account));
 		assertThat(ledgerTypes(account)).contains("ACCOUNT_OPEN", "MARKET_BUY", "MARKET_SELL", "LIMIT_BUY_RESERVE",

@@ -1,8 +1,11 @@
 package com.solv.wefin.domain.trading.market.client;
 
 import com.solv.wefin.domain.trading.market.client.dto.*;
+import com.solv.wefin.global.error.BusinessException;
+import com.solv.wefin.global.error.ErrorCode;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -13,6 +16,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * 한투 Open API 시세 조회 클라이언트
  */
+@Slf4j
 @RequiredArgsConstructor
 @Component
 public class HantuMarketClient {
@@ -34,7 +38,25 @@ public class HantuMarketClient {
      */
     public HantuPriceApiResponse fetchCurrentPrice(String stockCode) {
         // 회로가 열려 있으면 호출 없이 CallNotPermittedException → MarketService 가 MARKET_API_FAILED(503)로 바꾼다
-        return hantuPriceCircuitBreaker.executeSupplier(() -> requestCurrentPrice(stockCode));
+        // 응답 검증도 회로 안에서 한다. 한투는 업무 오류를 HTTP 200 으로 돌려주므로, 밖에서 검증하면 회로가 이를 성공으로 센다
+        return hantuPriceCircuitBreaker.executeSupplier(() -> validated(stockCode, requestCurrentPrice(stockCode)));
+    }
+
+    private static HantuPriceApiResponse validated(String stockCode, HantuPriceApiResponse response) {
+        boolean ok = response != null && "0".equals(response.rt_cd())
+                && response.output() != null && hasText(response.output().stck_prpr());
+        if (!ok) {
+            log.warn("[한투 시세] 업무 오류 응답 stockCode={} rt_cd={} msg_cd={} msg={}", stockCode,
+                    response == null ? null : response.rt_cd(),
+                    response == null ? null : response.msg_cd(),
+                    response == null ? null : response.msg1());
+            throw new BusinessException(ErrorCode.MARKET_API_FAILED);
+        }
+        return response;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private HantuPriceApiResponse requestCurrentPrice(String stockCode) {

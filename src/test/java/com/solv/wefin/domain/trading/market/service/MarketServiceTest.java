@@ -47,7 +47,7 @@ class MarketServiceTest {
         // given
         given(stockService.existsByCode("005930")).willReturn(true);
         given(hantuMarketClient.fetchCurrentPrice("005930")).willReturn(
-                new HantuPriceApiResponse(new HantuPriceApiResponse.Output(
+                new HantuPriceApiResponse("0", null, null, new HantuPriceApiResponse.Output(
                         "97500", "1200", "2", "1.25",
                         "12340567", "1200000000000",
                         "96800", "98200", "96300",
@@ -69,7 +69,7 @@ class MarketServiceTest {
         // given
         given(stockService.existsByCode("005930")).willReturn(true);
         given(hantuMarketClient.fetchCurrentPrice("005930")).willReturn(
-                new HantuPriceApiResponse(new HantuPriceApiResponse.Output(
+                new HantuPriceApiResponse("0", null, null, new HantuPriceApiResponse.Output(
                         "97500", "1200", "2", "1.25",
                         "12340567", "1200000000000",
                         "96800", "98200", "96300",

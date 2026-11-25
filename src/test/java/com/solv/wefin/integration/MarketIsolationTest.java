@@ -2,10 +2,16 @@ package com.solv.wefin.integration;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +49,11 @@ class MarketIsolationTest extends IntegrationTestBase {
 	@DynamicPropertySource
 	static void hantuUrl(DynamicPropertyRegistry registry) {
 		registry.add("hantu.api.baseUrl", hantu::baseUrl);
+	}
+
+	@AfterAll
+	static void stopHantu() {
+		hantu.stop();
 	}
 
 	@Autowired
@@ -120,6 +131,54 @@ class MarketIsolationTest extends IntegrationTestBase {
 		long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
 		assertThat(elapsedMs).isBetween(1_500L, 3_000L);
+	}
+
+	@Test
+	void 한투가_HTTP_200으로_업무_오류를_돌려줘도_실패로_세어_회로가_열린다() {
+		hantu.failPriceWithBusinessError();
+		for (int i = 0; i < 5; i++) {   // minimumNumberOfCalls = 5
+			Long stockId = stockIds.get(i);
+			assertMarketApiFailed(() -> facade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString()));
+		}
+
+		assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders", Integer.class)).isZero();
+	}
+
+	@Test
+	void 풀_크기보다_많은_매수가_시세를_기다려도_DB_커넥션을_쥐지_않아_다른_조회는_바로_된다() throws Exception {
+		hantu.delayPrice(1_000);   // 읽기 타임아웃(2초)·느린 호출 기준(1.5초)보다 짧게
+		int buyers = 15;           // 커넥션 풀 최대 10보다 많이
+		ExecutorService pool = Executors.newFixedThreadPool(buyers);
+		CountDownLatch start = new CountDownLatch(1);
+		List<Long> probeMs = new ArrayList<>();
+		try {
+			for (int i = 0; i < buyers; i++) {
+				Long stockId = stockIds.get(i % stockIds.size());
+				pool.submit(() -> {
+					start.await();
+					try {
+						facade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
+					} catch (BusinessException ignored) {
+						// 이 테스트는 매수 결과가 아니라 매수가 기다리는 동안의 커넥션 점유를 본다
+					}
+					return null;
+				});
+			}
+			start.countDown();
+			Thread.sleep(200);   // 매수들이 시세 응답을 기다리기 시작한 뒤
+			for (int i = 0; i < 5; i++) {
+				long t = System.nanoTime();
+				accountService.getAccount(accountId);
+				probeMs.add((System.nanoTime() - t) / 1_000_000);
+			}
+		} finally {
+			pool.shutdown();
+			assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+		}
+
+		// 시세 조회가 주문 트랜잭션 안으로 돌아가면 15건이 커넥션 10개를 1초씩 쥐어, 조회가 수백 ms 이상 막힌다
+		assertThat(probeMs).allSatisfy(ms -> assertThat(ms).isLessThan(300));
 	}
 
 	@Test

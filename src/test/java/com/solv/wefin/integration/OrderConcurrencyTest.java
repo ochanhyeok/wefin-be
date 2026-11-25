@@ -74,7 +74,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		given(mockOutput.stck_oprc()).willReturn("186000");
 		given(mockOutput.stck_hgpr()).willReturn("186000");
 		given(mockOutput.stck_lwpr()).willReturn("186000");
-		HantuPriceApiResponse mockResponse = new HantuPriceApiResponse(mockOutput);
+		HantuPriceApiResponse mockResponse = new HantuPriceApiResponse("0", null, null, mockOutput);
 		given(hantuMarketClient.fetchCurrentPrice(anyString())).willReturn(mockResponse);
 
 		userId = UUID.randomUUID();

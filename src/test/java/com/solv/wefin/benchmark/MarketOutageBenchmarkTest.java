@@ -99,14 +99,15 @@ class MarketOutageBenchmarkTest extends IntegrationTestBase {
 
 	@AfterAll
 	static void writeReport() throws IOException {
+		hantu.stop();
 		Files.createDirectories(REPORT.getParent());
 		String label = System.getenv().getOrDefault("OUTAGE_LABEL", "current");
 		StringBuilder md = new StringBuilder("## 시세 API 장애 격리 측정 (" + label + ")\n\n")
 			.append("매수 ").append(BUYERS).append("건(캐시 없는 종목 각 1건) 동시 + 주문과 무관한 계좌 조회 ")
 			.append(PROBES).append("회. 커넥션 풀 최대 10\n\n")
 			.append("2차 매수: 1차가 끝난 직후 같은 20건을 한 번 더 보냈을 때 (서킷 브레이커가 열렸는지 보는 용도)\n\n")
-			.append("| 시나리오 | 1차 매수 성공/실패 | 1차 매수 p50 / 최대 (ms) | 무관한 조회 p50 / 최대 (ms) | 풀 사용 최대 / 대기 스레드 최대 | 2차 매수 성공/실패 | 2차 매수 p50 / 최대 (ms) | 한투 호출 (1차+2차) |\n")
-			.append("|---|---|---|---|---|---|---|---|\n");
+			.append("| 시나리오 | 1차 매수 성공/실패 | 1차 매수 p50 / 최대 (ms) | 무관한 조회 성공/실패 | 무관한 조회 p50 / 최대 (ms, 실패 포함) | 풀 사용 최대 / 대기 스레드 최대 | 2차 매수 성공/실패 | 2차 매수 p50 / 최대 (ms) | 한투 호출 (1차+2차) |\n")
+			.append("|---|---|---|---|---|---|---|---|---|\n");
 		report.forEach(md::append);
 		Files.writeString(REPORT, md.toString(), StandardCharsets.UTF_8,
 			java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
@@ -199,12 +200,13 @@ class MarketOutageBenchmarkTest extends IntegrationTestBase {
 		Thread.sleep(300);   // 매수들이 시세를 기다리기 시작한 뒤
 
 		List<Long> probeLatencies = new ArrayList<>();
+		int probeFailed = 0;
 		for (int i = 0; i < PROBES; i++) {
 			long t = System.nanoTime();
 			try {
 				accountService.getAccountByUserId(users.get(i % users.size()));
 			} catch (RuntimeException e) {
-				// 커넥션 획득 실패도 지연으로 기록
+				probeFailed++;   // 커넥션 획득 실패도 지연으로 기록하되, 빠른 실패를 정상 응답으로 오인하지 않게 따로 센다
 			}
 			probeLatencies.add((System.nanoTime() - t) / 1_000_000);
 			Thread.sleep(100);
@@ -240,8 +242,9 @@ class MarketOutageBenchmarkTest extends IntegrationTestBase {
 		done2.await(120, TimeUnit.SECONDS);
 		pool2.shutdown();
 
-		report.add(String.format("| %s | %d / %d | %d / %d | %d / %d | %d / %d | %d / %d | %d / %d | %d |%n", scenario,
-			ok.get(), failed.get(), p50(buyLatencies), max(buyLatencies), p50(probeLatencies), max(probeLatencies),
+		report.add(String.format("| %s | %d / %d | %d / %d | %d / %d | %d / %d | %d / %d | %d / %d | %d / %d | %d |%n", scenario,
+			ok.get(), failed.get(), p50(buyLatencies), max(buyLatencies), PROBES - probeFailed, probeFailed,
+			p50(probeLatencies), max(probeLatencies),
 			peakActive.get(), peakWaiting.get(), ok2.get(), failed2.get(), p50(wave2), max(wave2), hantu.priceCalls()));
 	}
 

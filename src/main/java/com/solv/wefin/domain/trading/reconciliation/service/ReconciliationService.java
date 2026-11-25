@@ -1,5 +1,7 @@
 package com.solv.wefin.domain.trading.reconciliation.service;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -93,7 +95,7 @@ public class ReconciliationService {
 			// 제한 시간을 넘겨 다른 실행이 FAILED 로 정리했다. 성공으로 덮지 않고, 저장한 불일치도 함께 롤백한다
 			throw new IllegalStateException("제한 시간을 넘겨 중단 처리된 실행입니다. runId=" + runId);
 		}
-		run.succeed(checkedAccounts, accountRows.size(), checkedOrders, orderRows.size());
+		run.succeed(checkedAccounts, accountRows.size(), checkedOrders, orderRows.size(), dbNow());
 		return run;
 	}
 
@@ -102,12 +104,16 @@ public class ReconciliationService {
 			transactionTemplate.executeWithoutResult(status ->
 				runRepository.findByIdForUpdate(runId)
 					.filter(ReconciliationRun::isRunning)   // 이미 FAILED 로 정리된 실행의 원인을 덮어쓰지 않는다
-					.ifPresent(run -> run.fail(summarize(cause))));
+					.ifPresent(run -> run.fail(summarize(cause), dbNow())));
 		} catch (RuntimeException e) {
 			// 실패 기록조차 못 남기면 RUNNING 으로 남고, 다음 실행이 제한 시간 뒤 FAILED 로 정리한다
 			log.error("[대사] 실패 기록 실패 runId={}", runId, e);
 		}
 		log.error("[대사 실패] runId={}", runId, cause);
+	}
+
+	private OffsetDateTime dbNow() {
+		return OffsetDateTime.ofInstant(runRepository.dbNow(), ZoneOffset.UTC);
 	}
 
 	private static ReconciliationMismatch toMismatch(Long runId, ReconciliationMismatch.Type type, Row r) {
