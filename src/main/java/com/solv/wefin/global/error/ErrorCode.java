@@ -102,7 +102,10 @@ public enum ErrorCode {
     ORDER_STOCK_NOT_FOUND(400, "존재하지 않는 종목입니다."),
     ORDER_MARKET_CLOSED(400, "장 마감 시간에는 주문할 수 없습니다."),
     ORDER_INVALID_AMOUNT(400, "금액은 0보다 커야 합니다."),
-    ORDER_DUPLICATE_REQUEST(409, "이미 처리 중이거나 처리된 주문 요청입니다."),
+    ORDER_IDEMPOTENCY_KEY_REQUIRED(400, "Idempotency-Key 헤더가 필요합니다."),
+    ORDER_IDEMPOTENCY_KEY_INVALID(400, "Idempotency-Key는 UUID 형식이어야 합니다."),
+    ORDER_IDEMPOTENCY_KEY_REUSED(422, "같은 Idempotency-Key로 다른 내용의 주문을 요청했습니다."),
+    ORDER_REQUEST_IN_PROGRESS(409, "같은 주문을 처리 중입니다. 잠시 뒤 다시 요청해주세요."),
 
     // Order - SELL
     ORDER_INSUFFICIENT_HOLDINGS(400, "보유 수량이 부족합니다."),

@@ -28,11 +28,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
+import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.entity.OrderStatus;
 import com.solv.wefin.domain.trading.order.entity.OrderType;
+import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
+import com.solv.wefin.global.error.BusinessException;
+import com.solv.wefin.global.error.ErrorCode;
 
 @WebMvcTest(OrderController.class)
 class OrderControllerTest {
@@ -42,6 +46,8 @@ class OrderControllerTest {
 
 	@MockitoBean
 	private OrderService orderService;
+	@MockitoBean
+	private IdempotentOrderFacade idempotentOrderFacade;
 	@MockitoBean
 	private VirtualAccountService accountService;
 	@MockitoBean
@@ -71,11 +77,13 @@ class OrderControllerTest {
 
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
-		given(orderService.buyMarket(anyLong(), anyLong(), anyInt(), anyString()))
-			.willReturn(mockOrderInfo);
+		String key = UUID.randomUUID().toString();
+		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+			.willReturn(OrderResult.created(mockOrderInfo));
 
 		// when & then
 		mockMvc.perform(post("/api/order/buy")
+				.header("Idempotency-Key", key)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"stockCode\": \"005930\", \"quantity\": 10}")
 				.with(csrf())
@@ -83,9 +91,58 @@ class OrderControllerTest {
 					new UsernamePasswordAuthenticationToken(testUserId, null, List.of())
 				)))
 			.andExpect(status().isOk())
+			.andExpect(header().doesNotExist("Idempotent-Replayed"))
 			.andExpect(jsonPath("$.data.side").value("BUY"))
 			.andExpect(jsonPath("$.data.stockCode").value("005930"))
 			.andExpect(jsonPath("$.data.quantity").value(10));
+	}
+
+	@Test
+	void 매수_재전송이면_헤더로_알린다() throws Exception {
+		// given
+		Order mockOrder = createMockOrder(OrderSide.BUY, OrderType.MARKET, OrderStatus.FILLED);
+		OrderInfo mockOrderInfo = new OrderInfo(mockOrder, "005930", "삼성전자",
+			new BigDecimal("178000"), new BigDecimal("9024854"),
+			BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("9024854"));
+		Stock stock = mockStock(1L, "005930", "삼성전자");
+		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
+		String key = UUID.randomUUID().toString();
+		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+			.willReturn(OrderResult.replayed(mockOrderInfo));
+
+		// when & then
+		mockMvc.perform(post("/api/order/buy")
+				.header("Idempotency-Key", key)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"stockCode\": \"005930\", \"quantity\": 10}")
+				.with(csrf())
+				.with(authentication(
+					new UsernamePasswordAuthenticationToken(testUserId, null, List.of())
+				)))
+			.andExpect(status().isOk())
+			.andExpect(header().string("Idempotent-Replayed", "true"))
+			.andExpect(jsonPath("$.data.quantity").value(10));
+	}
+
+	@Test
+	void 매수_같은키_처리중이면_409() throws Exception {
+		// given
+		Stock stock = mockStock(1L, "005930", "삼성전자");
+		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
+		String key = UUID.randomUUID().toString();
+		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+			.willThrow(new BusinessException(ErrorCode.ORDER_REQUEST_IN_PROGRESS));
+
+		// when & then
+		mockMvc.perform(post("/api/order/buy")
+				.header("Idempotency-Key", key)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"stockCode\": \"005930\", \"quantity\": 10}")
+				.with(csrf())
+				.with(authentication(
+					new UsernamePasswordAuthenticationToken(testUserId, null, List.of())
+				)))
+			.andExpect(status().isConflict());
 	}
 
 	@Test
