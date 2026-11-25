@@ -156,8 +156,8 @@ class OrderControllerTest {
 
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
-		given(marketOrderFacade.sellMarket(anyLong(), anyLong(), anyInt()))
-			.willReturn(mockOrderInfo);
+		given(marketOrderFacade.sellMarket(anyLong(), anyLong(), anyInt(), any()))
+			.willReturn(OrderResult.created(mockOrderInfo));
 
 		// when & then
 		mockMvc.perform(post("/api/order/sell")

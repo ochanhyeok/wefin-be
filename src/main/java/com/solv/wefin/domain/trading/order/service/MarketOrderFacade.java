@@ -7,6 +7,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderIdempotency;
+import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.repository.OrderRepository;
 import com.solv.wefin.domain.trading.stock.entity.Stock;
 import com.solv.wefin.global.error.BusinessException;
@@ -50,22 +52,36 @@ public class MarketOrderFacade {
 	private final MarketPriceProvider marketPriceProvider;
 
 	public OrderResult buyMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
+		return executeOnce(virtualAccountId, stockId, quantity, idempotencyKey, OrderSide.BUY,
+			price -> orderService.buyMarket(virtualAccountId, stockId, quantity, price, idempotencyKey));
+	}
+
+	/** 시장가 매도. 매수와 같은 이유(즉시 체결이라 되돌릴 수 없음)로 같은 멱등 규칙을 적용한다. */
+	public OrderResult sellMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
+		return executeOnce(virtualAccountId, stockId, quantity, idempotencyKey, OrderSide.SELL,
+			price -> orderService.sellMarket(virtualAccountId, stockId, quantity, price, idempotencyKey));
+	}
+
+	/**
+	 * 선점 → 시세 조회 → 주문 → 결과 기록. 같은 키의 기록이 있으면 주문하지 않고 상태에 맞게 응답한다.
+	 * 지문에 매수·매도를 넣어, 같은 키로 매수 뒤 매도를 보내면 내용이 다른 요청(422)으로 거절된다.
+	 */
+	private OrderResult executeOnce(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey,
+		OrderSide side, Function<BigDecimal, OrderInfo> order) {
 		// 값싼 입력 검증을 먼저: 잘못된 요청이 선점 기록을 남기면 고친 요청이 같은 키로 막힌다
 		validateKey(idempotencyKey);
 		if (quantity == null || quantity <= 0) {
 			throw new BusinessException(ErrorCode.ORDER_INVALID_QUANTITY);
 		}
 
-		String fingerprint = fingerprint("BUY", "MARKET", stockId, quantity);
+		String fingerprint = fingerprint(side, "MARKET", stockId, quantity);
 		Optional<OrderIdempotency> existing = idempotencyService.claim(virtualAccountId, idempotencyKey, fingerprint);
 		if (existing.isPresent()) {
 			return replay(existing.get(), fingerprint);
 		}
 
 		try {
-			BigDecimal currentPrice = quote(stockId);
-			return OrderResult.created(
-				orderService.buyMarket(virtualAccountId, stockId, quantity, currentPrice, idempotencyKey));
+			return OrderResult.created(order.apply(quote(stockId)));
 		} catch (BusinessException e) {
 			settleFailure(virtualAccountId, idempotencyKey, e);
 			throw e;
@@ -73,14 +89,6 @@ public class MarketOrderFacade {
 			releaseQuietly(virtualAccountId, idempotencyKey);
 			throw e;
 		}
-	}
-
-	/** 시장가 매도. 멱등 처리는 아직 매수에만 적용돼 있다 (ADR 0001 남은 일). */
-	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity) {
-		if (quantity == null || quantity <= 0) {
-			throw new BusinessException(ErrorCode.ORDER_INVALID_QUANTITY);
-		}
-		return orderService.sellMarket(virtualAccountId, stockId, quantity, quote(stockId));
 	}
 
 	/**
@@ -98,7 +106,7 @@ public class MarketOrderFacade {
 		}
 		return switch (record.getStatus()) {
 			case PROCESSING -> throw new BusinessException(ErrorCode.ORDER_REQUEST_IN_PROGRESS);
-			case FAILED -> throw new BusinessException(ErrorCode.valueOf(record.getErrorCode()));
+			case FAILED -> throw storedRejection(record);
 			case DONE -> {
 				Order order = orderRepository.findById(record.getOrderId())
 					.orElseThrow(() -> new IllegalStateException("멱등 기록의 주문이 없습니다. orderId=" + record.getOrderId()));
@@ -106,6 +114,19 @@ public class MarketOrderFacade {
 				yield OrderResult.replayed(info);
 			}
 		};
+	}
+
+	/**
+	 * 저장해 둔 거절을 다시 던진다. 기록 뒤 ErrorCode 이름이 바뀌거나 지워졌으면 valueOf 가 실패해 500 이 되므로,
+	 * 그때는 "이전에 거절된 요청"이라는 사실만 알려준다. 재전송 경로가 배포 때문에 깨지면 안 된다.
+	 */
+	private static BusinessException storedRejection(OrderIdempotency record) {
+		try {
+			return new BusinessException(ErrorCode.valueOf(record.getErrorCode()));
+		} catch (IllegalArgumentException e) {
+			log.warn("저장된 거절 코드를 찾을 수 없음 code={} key={}", record.getErrorCode(), record.getIdempotencyKey());
+			return new BusinessException(ErrorCode.ORDER_PREVIOUSLY_REJECTED);
+		}
 	}
 
 	/**
