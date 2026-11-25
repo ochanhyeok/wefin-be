@@ -10,6 +10,25 @@ AI 금융 뉴스 브리핑 및 모의 투자 서비스 백엔드 시스템
 
 
 
+## 이 포크에서 바꾼 것 (오찬혁, 2026.11)
+
+팀 프로젝트([S0L-V/wefin-be](https://github.com/S0L-V/wefin-be))에서 제가 맡은 주문·체결·자산 모듈을, 장애와 동시 요청 상황 기준으로 다시 설계한 개인 포크입니다.
+결정 과정과 버린 대안은 ADR에, 코드 변경은 PR에 있습니다.
+
+| 주제 | 핵심 | 근거 |
+|---|---|---|
+| 지정가 매칭 인덱스 | 100만 건에서 89ms → 0.45ms, 부분 인덱스로 크기 1/9. 운영 테이블 무중단 적용(CONCURRENTLY) 중 Flyway 멈춤 해결 | [PR #2](https://github.com/ochanhyeok/wefin-be/pull/2) |
+| 주문 멱등성 재설계 | 계좌별 키, 요청 지문(422), 첫 응답 재전송, 거절(4xx)·장애(5xx) 구분, 처리 중 서버 다운 시 리스 | [ADR 0001](docs/adr/0001-order-idempotency.md) · [PR #3](https://github.com/ochanhyeok/wefin-be/pull/3) |
+| 현금 원장과 일일 대사 | 잔고를 바꾸는 10개 경로를 원장에 기록, 계좌·주문 대사, 배치의 동시 실행·중단·실패 처리 | [ADR 0002](docs/adr/0002-cash-ledger-reconciliation.md) · [PR #4](https://github.com/ochanhyeok/wefin-be/pull/4) |
+| 외부 시세 API 장애 격리 | 트랜잭션 밖 조회, 타임아웃, 서킷 브레이커. 한투 무응답 시 무관한 조회 최대 4,896ms → 30ms | [ADR 0003](docs/adr/0003-market-api-isolation.md) · [PR #5](https://github.com/ochanhyeok/wefin-be/pull/5) |
+
+```bash
+./gradlew test        # 912개, Docker 필요 (Testcontainers PostgreSQL·Redis)
+./gradlew benchmark   # 락 전략·인덱스·시세 장애 측정, 결과는 build/benchmark-results/
+```
+
+<br>
+
 ## Contributors
 
 | <img src="https://avatars.githubusercontent.com/u/249074764?v=4" width="80" /> | <img src="https://avatars.githubusercontent.com/u/233912143?v=4" width="80" /> | <img src="https://avatars.githubusercontent.com/u/118364543?v=4" width="80" /> | <img src="https://avatars.githubusercontent.com/u/125783546?v=4" width="80" /> | <img src="https://avatars.githubusercontent.com/u/88781949?v=4" width="80" /> | <img src="https://avatars.githubusercontent.com/u/233753069?v=4" width="80" /> |
