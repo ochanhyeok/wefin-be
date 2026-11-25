@@ -39,6 +39,9 @@ class LimitOrderServiceTest {
     @Mock
     private OrderRepository orderRepository;
 
+    @Mock
+    private com.solv.wefin.domain.trading.ledger.service.CashLedgerService cashLedgerService;
+
     @InjectMocks
     private LimitOrderService limitOrderService;
 

@@ -88,6 +88,24 @@ class AdminAuthorizationFilterTest {
     }
 
     @Test
+    @DisplayName("대사 실행 경로도 관리자만 호출할 수 있다")
+    void doFilterInternal_returns_forbidden_on_reconciliation_when_not_admin() throws Exception {
+        UUID userId = UUID.randomUUID();
+        setAuthentication(userId);
+
+        doThrow(new BusinessException(ErrorCode.ADMIN_FORBIDDEN))
+                .when(adminAuthorizationService)
+                .requireAdmin(userId);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/reconciliation/runs");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
     @DisplayName("admin accounts 경로에서 일반 유저면 403을 반환한다")
     void doFilterInternal_returns_forbidden_when_not_admin() throws Exception {
         UUID userId = UUID.randomUUID();

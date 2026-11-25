@@ -165,7 +165,8 @@ class UserQuestServiceTest {
 
         // then
         assertEquals(QuestStatus.REWARDED, result.getStatus());
-        verify(virtualAccountService).depositBalance(11L, java.math.BigDecimal.valueOf(100_000));
+        verify(virtualAccountService).depositBalance(11L, java.math.BigDecimal.valueOf(100_000),
+                com.solv.wefin.domain.trading.ledger.entity.CashLedgerType.QUEST_REWARD);
     }
 
     @Test
@@ -185,6 +186,6 @@ class UserQuestServiceTest {
         // then
         assertEquals(ErrorCode.USER_QUEST_NOT_FOUND, exception.getErrorCode());
         verify(virtualAccountService, never()).getAccountByUserId(any());
-        verify(virtualAccountService, never()).depositBalance(any(), any());
+        verify(virtualAccountService, never()).depositBalance(any(), any(), any());
     }
 }

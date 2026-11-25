@@ -13,6 +13,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.solv.wefin.domain.trading.ledger.service.CashLedgerService;
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.repository.VirtualAccountRepository;
 import com.solv.wefin.global.error.BusinessException;
@@ -26,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 public class VirtualAccountService {
 
 	private final VirtualAccountRepository accountRepository;
+	private final CashLedgerService cashLedgerService;
 
 	/**
 	 * 계좌 생성
@@ -38,7 +41,9 @@ public class VirtualAccountService {
 		}
 
 		try {
-			return accountRepository.save(new VirtualAccount(userId));
+			VirtualAccount saved = accountRepository.save(new VirtualAccount(userId));
+			cashLedgerService.record(saved.getVirtualAccountId(), CashLedgerType.ACCOUNT_OPEN, saved.getBalance(), null);
+			return saved;
 		} catch (DataIntegrityViolationException e) {
 			throw new BusinessException(ErrorCode.ACCOUNT_ALREADY_EXISTS);
 		}
@@ -91,10 +96,11 @@ public class VirtualAccountService {
 	 * 잔고 입금
 	 */
 	@Transactional
-	public VirtualAccount depositBalance(Long virtualAccountId, BigDecimal amount) {
+	public VirtualAccount depositBalance(Long virtualAccountId, BigDecimal amount, CashLedgerType type) {
 		VirtualAccount account = getAccountForUpdate(virtualAccountId);
 
 		account.deposit(amount);
+		cashLedgerService.record(virtualAccountId, type, amount, null);
 		return account;
 	}
 
