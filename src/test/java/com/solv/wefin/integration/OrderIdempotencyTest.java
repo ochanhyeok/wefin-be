@@ -23,7 +23,10 @@ import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.market.service.MarketService;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.scheduler.OrderIdempotencyCleanupScheduler;
+import com.solv.wefin.domain.trading.order.dto.IdempotencyClaim;
 import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
+import com.solv.wefin.domain.trading.order.service.OrderIdempotencyService;
+import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 
@@ -42,6 +45,10 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 	private VirtualAccountService accountService;
 	@Autowired
 	private OrderIdempotencyCleanupScheduler cleanupScheduler;
+	@Autowired
+	private OrderIdempotencyService idempotencyService;
+	@Autowired
+	private OrderService orderService;
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
@@ -169,6 +176,24 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 	}
 
 	@Test
+	void 리스가_끝나_다른_요청이_재선점하면_늦게_끝난_원래_요청은_롤백된다() {
+		String key = newKey();
+		IdempotencyClaim original = idempotencyService.claim(accountId, key, fingerprint(1)).claim();   // 원래 요청 선점
+		jdbcTemplate.update("UPDATE order_idempotency SET updated_at = now() - interval '2 minutes' "
+			+ "WHERE virtual_account_id = ? AND idempotency_key = ?", accountId, key);              // 원래 요청이 리스를 넘김
+
+		assertThat(facade.buyMarket(accountId, stockId, 1, key).replayed()).isFalse();             // 재시도가 재선점해 주문
+		BigDecimal balanceAfterRetry = balance(accountId);
+
+		// 원래 요청이 뒤늦게 주문을 끝내려 해도 토큰이 달라 완료 기록이 0건 → 주문 트랜잭션 롤백
+		assertErrorCode(() -> orderService.buyMarket(accountId, stockId, 1, PRICE, original),
+			ErrorCode.ORDER_REQUEST_IN_PROGRESS);
+		assertThat(orderCount(accountId)).isEqualTo(1);
+		assertThat(balance(accountId)).isEqualByComparingTo(balanceAfterRetry);
+		assertThat(status(accountId, key)).isEqualTo("DONE");
+	}
+
+	@Test
 	void 입력_오류는_선점보다_먼저_걸러서_고친_요청이_같은_키로_통과한다() {
 		String key = newKey();
 		assertErrorCode(() -> facade.buyMarket(accountId, stockId, 0, key), ErrorCode.ORDER_INVALID_QUANTITY);
@@ -199,6 +224,18 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 		assertThat(rowCount(accountId, recent)).isEqualTo(1);
 	}
 
+	@Test
+	void 정리_배치는_오래전에_생성됐어도_재선점되어_처리_중인_기록은_지우지_않는다() {
+		String reclaimed = newKey();
+		insertProcessing(accountId, reclaimed, 1, "now() - interval '25 hours'");
+		jdbcTemplate.update("UPDATE order_idempotency SET updated_at = now() "
+			+ "WHERE virtual_account_id = ? AND idempotency_key = ?", accountId, reclaimed);   // 리스 안에서 재선점됨
+
+		cleanupScheduler.purgeExpired();
+
+		assertThat(rowCount(accountId, reclaimed)).isEqualTo(1);
+	}
+
 	private Long createAccount() {
 		UUID userId = UUID.randomUUID();
 		jdbcTemplate.update("INSERT INTO users (user_id, email, nickname, password, created_at, updated_at) "
@@ -209,12 +246,20 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 
 	/** 같은 요청이 만들었을 지문으로 PROCESSING 기록을 직접 심는다 (서버가 처리 중이거나 처리 중 죽은 상황) */
 	private void insertProcessing(Long account, String key, int quantity, String timestampSql) {
-		String fingerprint = jdbcTemplate.queryForObject(
-			"SELECT encode(sha256(convert_to(?, 'UTF8')), 'hex')", String.class,
-			"BUY|MARKET|" + stockId + "|" + quantity + "|");
 		jdbcTemplate.update("INSERT INTO order_idempotency (virtual_account_id, idempotency_key, request_fingerprint, "
 			+ "status, created_at, updated_at) VALUES (?, ?, ?, 'PROCESSING', " + timestampSql + ", " + timestampSql + ")",
-			account, key, fingerprint);
+			account, key, fingerprint(quantity));
+	}
+
+	/** 시장가 매수 요청의 지문. 파사드와 같은 규칙(SHA-256 of "BUY|MARKET|종목|수량|") */
+	private String fingerprint(int quantity) {
+		return jdbcTemplate.queryForObject("SELECT encode(sha256(convert_to(?, 'UTF8')), 'hex')", String.class,
+			"BUY|MARKET|" + stockId + "|" + quantity + "|");
+	}
+
+	private BigDecimal balance(Long account) {
+		return jdbcTemplate.queryForObject("SELECT balance FROM virtual_account WHERE virtual_account_id = ?",
+			BigDecimal.class, account);
 	}
 
 	private int orderCount(Long account) {

@@ -26,6 +26,7 @@ import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
 import com.solv.wefin.domain.trading.matching.event.OrderMatchedEvent;
 import com.solv.wefin.domain.trading.order.dto.OrderCancelInfo;
+import com.solv.wefin.domain.trading.order.dto.IdempotencyClaim;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.dto.OrderSearchCondition;
 import com.solv.wefin.domain.trading.order.entity.Order;
@@ -69,9 +70,9 @@ public class OrderService {
 	 */
 	@Transactional(timeout = ORDER_TX_TIMEOUT_SECONDS)
 	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice,
-		String idempotencyKey) {
+		IdempotencyClaim claim) {
 		OrderInfo info = buyMarket(virtualAccountId, stockId, quantity, currentPrice);
-		orderIdempotencyService.markDone(virtualAccountId, idempotencyKey, info);
+		orderIdempotencyService.markDone(claim, info);
 		return info;
 	}
 
@@ -127,9 +128,9 @@ public class OrderService {
 	/** 멱등 시장가 매도. 매수와 같이 주문과 멱등 완료 기록을 한 트랜잭션에 묶는다. */
 	@Transactional(timeout = ORDER_TX_TIMEOUT_SECONDS)
 	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice,
-		String idempotencyKey) {
+		IdempotencyClaim claim) {
 		OrderInfo info = sellMarket(virtualAccountId, stockId, quantity, currentPrice);
-		orderIdempotencyService.markDone(virtualAccountId, idempotencyKey, info);
+		orderIdempotencyService.markDone(claim, info);
 		return info;
 	}
 

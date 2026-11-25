@@ -21,6 +21,7 @@ import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
 import com.solv.wefin.domain.trading.matching.event.OrderMatchedEvent;
+import com.solv.wefin.domain.trading.order.dto.IdempotencyClaim;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
@@ -93,13 +94,13 @@ class OrderServiceTest {
 		given(mockStock.getStockCode()).willReturn("005930");
 		given(virtualAccountService.deductBalance(eq(1L), any())).willReturn(new VirtualAccount(UUID.randomUUID()));
 		given(orderRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
-		String key = UUID.randomUUID().toString();
+		IdempotencyClaim claim = new IdempotencyClaim(1L, UUID.randomUUID().toString(), UUID.randomUUID());
 
 		// when
-		OrderInfo info = orderService.buyMarket(1L, 1L, 20, PRICE, key);
+		OrderInfo info = orderService.buyMarket(1L, 1L, 20, PRICE, claim);
 
 		// then
-		verify(orderIdempotencyService).markDone(1L, key, info);
+		verify(orderIdempotencyService).markDone(claim, info);
 	}
 
 	@Test
@@ -111,7 +112,8 @@ class OrderServiceTest {
 			.willThrow(new BusinessException(ErrorCode.ORDER_INSUFFICIENT_BALANCE));
 
 		// when & then
-		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, PRICE, UUID.randomUUID().toString()))
+		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, PRICE,
+			new IdempotencyClaim(1L, UUID.randomUUID().toString(), UUID.randomUUID())))
 			.isInstanceOf(BusinessException.class);
 		verifyNoInteractions(orderIdempotencyService);
 	}
