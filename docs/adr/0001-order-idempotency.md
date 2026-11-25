@@ -1,7 +1,7 @@
 # ADR 0001. 주문 멱등성 재설계
 
 - 상태: 채택 (2026-11-25)
-- 범위: 시장가 매수 `POST /api/order/buy`
+- 범위: 시장가 매수 `POST /api/order/buy`, 시장가 매도 `POST /api/order/sell` (매도는 PR #6에서 확장)
 - 관련 커밋: `8a153499` (phase1/idempotency)
 - 이전 설계: V55 `order_idempotency` + Redis SETNX 선점 (2026-08)
 
@@ -76,7 +76,7 @@ AI 리뷰(CodeRabbit)와 테스트 수정 과정에서 나온 문제는 다음�
 ### 2.4 트랜잭션 경계
 
 ```
-IdempotentOrderFacade (트랜잭션 없음)
+MarketOrderFacade (트랜잭션 없음, PR #5에서 이름 변경)
   ├─ 입력 검증 (키 형식, 수량)                      ← P6: 부수효과 없는 검증을 먼저
   ├─ claim()          REQUIRES_NEW, 즉시 커밋       ← 동시 요청이 이 기록을 보고 멈춘다
   ├─ OrderService.buyMarket(.., key)  timeout 10s
@@ -183,6 +183,6 @@ Idempotency-Key: <UUID, 주문 버튼을 누를 때 1회 생성>
 ## 6. 남은 것
 
 - 펜싱 토큰으로 리스 만료 후 늦게 끝난 트랜잭션의 DONE 기록을 막기 (2.5 한계)
-- 매도·지정가 주문에 같은 멱등 처리 적용 (현재는 시장가 매수만)
+- 지정가 주문에 같은 멱등 처리 적용 (시장가 매수·매도는 적용됨)
 - 프론트 키 발급 (4절)
 - 409 응답에 `Retry-After` 헤더 추가
