@@ -194,6 +194,26 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 	}
 
 	@Test
+	void 매도도_리스가_넘어간_뒤_늦게_끝난_원래_요청은_롤백되어_보유_수량을_두_번_빼지_않는다() {
+		facade.buyMarket(accountId, stockId, 2, newKey());
+		String key = newKey();
+		IdempotencyClaim original = idempotencyService.claim(accountId, key, fingerprint("SELL", 1)).claim();
+		jdbcTemplate.update("UPDATE order_idempotency SET updated_at = now() - interval '2 minutes' "
+			+ "WHERE virtual_account_id = ? AND idempotency_key = ?", accountId, key);
+
+		assertThat(facade.sellMarket(accountId, stockId, 1, key).replayed()).isFalse();
+		BigDecimal balanceAfterRetry = balance(accountId);
+
+		assertErrorCode(() -> orderService.sellMarket(accountId, stockId, 1, PRICE, original),
+			ErrorCode.ORDER_REQUEST_IN_PROGRESS);
+		assertThat(orderCount(accountId)).isEqualTo(2);   // 매수 1 + 매도 1
+		assertThat(balance(accountId)).isEqualByComparingTo(balanceAfterRetry);
+		assertThat(jdbcTemplate.queryForObject("SELECT quantity FROM portfolio WHERE virtual_account_id = ? AND stock_id = ?",
+			Integer.class, accountId, stockId)).isEqualTo(1);
+		assertThat(status(accountId, key)).isEqualTo("DONE");
+	}
+
+	@Test
 	void 입력_오류는_선점보다_먼저_걸러서_고친_요청이_같은_키로_통과한다() {
 		String key = newKey();
 		assertErrorCode(() -> facade.buyMarket(accountId, stockId, 0, key), ErrorCode.ORDER_INVALID_QUANTITY);
@@ -253,8 +273,12 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 
 	/** 시장가 매수 요청의 지문. 파사드와 같은 규칙(SHA-256 of "BUY|MARKET|종목|수량|") */
 	private String fingerprint(int quantity) {
+		return fingerprint("BUY", quantity);
+	}
+
+	private String fingerprint(String side, int quantity) {
 		return jdbcTemplate.queryForObject("SELECT encode(sha256(convert_to(?, 'UTF8')), 'hex')", String.class,
-			"BUY|MARKET|" + stockId + "|" + quantity + "|");
+			side + "|MARKET|" + stockId + "|" + quantity + "|");
 	}
 
 	private BigDecimal balance(Long account) {

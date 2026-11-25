@@ -23,7 +23,7 @@ AI 금융 뉴스 브리핑 및 모의 투자 서비스 백엔드 시스템
 | 외부 시세 API 장애 격리 | 트랜잭션 밖 조회, 타임아웃, 서킷 브레이커. 한투 무응답 시 무관한 조회 최대 4,896ms → 30ms | [ADR 0003](docs/adr/0003-market-api-isolation.md) · [PR #5](https://github.com/ochanhyeok/wefin-be/pull/5) |
 
 ```bash
-./gradlew test        # 927개, Docker 필요 (Testcontainers PostgreSQL·Redis)
+./gradlew test        # 928개, Docker 필요 (Testcontainers PostgreSQL·Redis)
 ./gradlew benchmark   # 락 전략·인덱스·시세 장애 측정, 결과는 build/benchmark-results/
 ```
 

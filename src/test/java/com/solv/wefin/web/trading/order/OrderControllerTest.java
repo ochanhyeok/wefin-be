@@ -156,11 +156,13 @@ class OrderControllerTest {
 
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
-		given(marketOrderFacade.sellMarket(anyLong(), anyLong(), anyInt(), any()))
+		String key = UUID.randomUUID().toString();
+		given(marketOrderFacade.sellMarket(1L, 1L, 10, key))
 			.willReturn(OrderResult.created(mockOrderInfo));
 
 		// when & then
 		mockMvc.perform(post("/api/order/sell")
+				.header("Idempotency-Key", key)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"stockCode\": \"005930\", \"quantity\": 10}")
 				.with(csrf())
