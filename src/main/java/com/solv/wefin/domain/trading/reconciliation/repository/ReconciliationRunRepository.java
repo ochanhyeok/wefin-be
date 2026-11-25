@@ -1,5 +1,6 @@
 package com.solv.wefin.domain.trading.reconciliation.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,10 @@ public interface ReconciliationRunRepository extends JpaRepository<Reconciliatio
 	 * 실행 중에 서버가 죽어 RUNNING 으로 남은 기록을 FAILED 로 정리한다.
 	 * 이걸 하지 않으면 "동시에 하나만 실행" 유니크 인덱스 때문에 이후 대사가 영원히 시작되지 않는다.
 	 */
+	/** 종료 시각을 시작 시각(DB 기본값)과 같은 DB 시계로 남기기 위해 쓴다 */
+	@Query(value = "SELECT now()", nativeQuery = true)
+	Instant dbNow();
+
 	@Modifying
 	@Query(value = """
 			UPDATE reconciliation_run

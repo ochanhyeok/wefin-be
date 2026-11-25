@@ -57,19 +57,21 @@ public class ReconciliationRun {
 		return run;
 	}
 
-	public void succeed(int checkedAccounts, int accountMismatches, int checkedOrders, int orderMismatches) {
+	/** finishedAt 은 startedAt 과 같은 DB 시계 값을 받는다. 앱 서버 시계가 DB보다 느리면 종료가 시작보다 앞서 보인다 */
+	public void succeed(int checkedAccounts, int accountMismatches, int checkedOrders, int orderMismatches,
+		OffsetDateTime finishedAt) {
 		this.status = Status.SUCCEEDED;
 		this.checkedAccounts = checkedAccounts;
 		this.accountMismatches = accountMismatches;
 		this.checkedOrders = checkedOrders;
 		this.orderMismatches = orderMismatches;
-		this.finishedAt = OffsetDateTime.now();
+		this.finishedAt = finishedAt;
 	}
 
-	public void fail(String errorMessage) {
+	public void fail(String errorMessage, OffsetDateTime finishedAt) {
 		this.status = Status.FAILED;
 		this.errorMessage = errorMessage;
-		this.finishedAt = OffsetDateTime.now();
+		this.finishedAt = finishedAt;
 	}
 
 	public boolean isRunning() {

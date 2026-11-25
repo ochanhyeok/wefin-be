@@ -1,6 +1,9 @@
 package com.solv.wefin.domain.trading.market.client.dto;
 
 public record HantuPriceApiResponse(
+        String rt_cd,          // 성공 "0". 업무 오류도 HTTP 200 으로 온다
+        String msg_cd,
+        String msg1,
         Output output
 ) {
     public record Output(

@@ -6,6 +6,12 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 
+  # 커넥션 대기 상한(기본 30초 → 3초). 시장가 주문은 시세를 트랜잭션 밖에서 먼저 받으므로,
+  # 풀이 고갈됐을 때 그 시세가 커넥션을 기다리며 오래되는 시간을 이 값으로 묶는다. 넘으면 주문이 실패하고 재시도한다
+  datasource:
+    hikari:
+      connection-timeout: 3000
+
   jackson:
     generator:
       write-bigdecimal-as-plain: true
