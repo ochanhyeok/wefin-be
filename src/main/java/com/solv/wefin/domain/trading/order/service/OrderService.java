@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
-import com.solv.wefin.domain.trading.common.MarketPriceProvider;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
 import com.solv.wefin.domain.trading.matching.event.OrderMatchedEvent;
 import com.solv.wefin.domain.trading.order.dto.OrderCancelInfo;
@@ -56,37 +55,38 @@ public class OrderService {
 	private final CashLedgerService cashLedgerService;
 	private final PortfolioService portfolioService;
 	private final VirtualAccountService virtualAccountService;
-	private final MarketPriceProvider marketPriceProvider;
 	private final StockInfoProvider stockInfoProvider;
 	private final TradeService tradeService;
 	private final ApplicationEventPublisher eventPublisher;
 	private final QuestProgressService questProgressService;
 
 	/**
-	 * 멱등 시장가 매수 — {@link IdempotentOrderFacade} 가 키를 선점한 뒤 호출한다.
+	 * 멱등 시장가 매수 — {@link MarketOrderFacade} 가 키를 선점한 뒤 호출한다.
 	 *
 	 * <p>주문과 멱등 완료 기록(DONE)을 한 트랜잭션에 묶는다. 둘 사이에 서버가 죽어도 "주문은 됐는데 기록은 PROCESSING"
 	 * 같은 어긋남이 생기지 않는다. 타임아웃은 선점 리스({@code OrderIdempotencyService.PROCESSING_LEASE})보다
 	 * 짧아야 한다: 리스가 먼저 끝나면 다른 요청이 같은 키를 재선점해 이중 주문이 된다.</p>
 	 */
 	@Transactional(timeout = ORDER_TX_TIMEOUT_SECONDS)
-	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
-		OrderInfo info = buyMarket(virtualAccountId, stockId, quantity);
+	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice,
+		String idempotencyKey) {
+		OrderInfo info = buyMarket(virtualAccountId, stockId, quantity, currentPrice);
 		orderIdempotencyService.markDone(virtualAccountId, idempotencyKey, info);
 		return info;
 	}
 
+	/**
+	 * 시장가 매수. 현재가는 호출자({@link MarketOrderFacade})가 트랜잭션 밖에서 조회해 넘긴다.
+	 * 외부 API 를 기다리는 동안 DB 커넥션을 쥐고 있지 않기 위해서다.
+	 */
 	@Transactional
-	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity) {
-		// 1. 수량 검증
+	public OrderInfo buyMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice) {
+		// 1. 수량·가격 검증
 		validateQuantity(quantity);
+		validatePrice(currentPrice);
 
-		// 2. 현재가 조회
+		// 2. 종목 조회
 		Stock stock = stockInfoProvider.getStock(stockId);
-		BigDecimal currentPrice = marketPriceProvider.getCurrentPrice(stock.getStockCode());
-		if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
-			throw new BusinessException(ErrorCode.MARKET_API_FAILED);
-		}
 
 		// 3. 금액 계산
 		BigDecimal totalAmount = currentPrice.multiply(BigDecimal.valueOf(quantity));
@@ -124,19 +124,15 @@ public class OrderService {
 			totalAmount, BigDecimal.ZERO, BigDecimal.ZERO, account.getBalance());
 	}
 
+	/** 시장가 매도. 현재가는 매수와 같은 이유로 트랜잭션 밖에서 조회해 넘긴다. */
 	@Transactional
-	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity) {
-		// 1. 수량 검증
+	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice) {
+		// 1. 수량·가격 검증
 		validateQuantity(quantity);
+		validatePrice(currentPrice);
 
 		// 2. 종목 조회
 		Stock stock = stockInfoProvider.getStock(stockId);
-
-		// 3. 현재가 조회
-		BigDecimal currentPrice = marketPriceProvider.getCurrentPrice(stock.getStockCode());
-		if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
-			throw new BusinessException(ErrorCode.MARKET_API_FAILED);
-		}
 
 		// 계좌 락 선점
 		VirtualAccount account = virtualAccountService.getAccountWithLock(virtualAccountId);
@@ -320,6 +316,12 @@ public class OrderService {
 	public List<Order> findTodayFilledOrders(Long virtualAccountId) {
 		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 		return orderRepository.findTodayFilledOrders(virtualAccountId, today);
+	}
+
+	private static void validatePrice(BigDecimal currentPrice) {
+		if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+			throw new BusinessException(ErrorCode.MARKET_API_FAILED);
+		}
 	}
 
 	private static void validateQuantity(Integer quantity) {

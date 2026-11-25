@@ -31,7 +31,7 @@ import com.solv.wefin.domain.trading.market.client.HantuMarketClient;
 import com.solv.wefin.domain.trading.market.client.HantuTokenManager;
 import com.solv.wefin.domain.trading.market.client.dto.HantuPriceApiResponse;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
-import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
+import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
@@ -50,7 +50,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 	@Autowired
-	private IdempotentOrderFacade idempotentOrderFacade;
+	private MarketOrderFacade marketOrderFacade;
 
 	@MockitoBean
 	private HantuMarketClient hantuMarketClient;
@@ -117,7 +117,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < threadCount; i++) {
 			executor.submit(() -> {
 				try {
-					orderService.buyMarket(accountId, stockId, 1); // 1주 매수
+					marketOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString()); // 1주 매수
 					successCount.incrementAndGet();
 				} catch (Exception e) {
 					log.error("매수 실패: {}", e.getMessage());
@@ -144,7 +144,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 	void 동시_매수5건_매도5건_잔고_정합성_유지() throws Exception {
 		// given - 5주 사전 매수
 		for (int i = 0; i < 5; i++) {
-			orderService.buyMarket(accountId, stockId, 1);
+			marketOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 		}
 
 		VirtualAccount before = accountService.getAccountByUserId(userId);
@@ -165,7 +165,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < 5; i++) {
 			executor.submit(() -> {
 				try {
-					orderService.buyMarket(accountId, stockId, 1);
+					marketOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 					buySuccess.incrementAndGet();
 				} catch (Exception e) {
 					buyFail.incrementAndGet();
@@ -178,7 +178,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < 5; i++) {
 			executor.submit(() -> {
 				try {
-					orderService.sellMarket(accountId, stockId, 1);
+					marketOrderFacade.sellMarket(accountId, stockId, 1);
 					sellSuccess.incrementAndGet();
 				} catch (Exception e) {
 					sellFail.incrementAndGet();
@@ -232,7 +232,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 	void 동시_매도_10건_보유수량_초과_안됨() throws Exception {
 		// given - 5주 사전 매수
 		for (int i = 0; i < 5; i++) {
-			orderService.buyMarket(accountId, stockId, 1);
+			marketOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 		}
 
 		int threadCount = 10;
@@ -245,7 +245,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < threadCount; i++) {
 			executor.submit(() -> {
 				try {
-					orderService.sellMarket(accountId, stockId, 1);
+					marketOrderFacade.sellMarket(accountId, stockId, 1);
 					successCount.incrementAndGet();
 				} catch (Exception e) {
 					log.info("매도 실패: {}", e.getMessage());
@@ -293,7 +293,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 				try {
 					ready.countDown();
 					start.await();
-					idempotentOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
+					marketOrderFacade.buyMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 					success.incrementAndGet();
 				} catch (Exception e) {
 					rejected.incrementAndGet();
@@ -336,7 +336,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 				try {
 					ready.countDown();
 					start.await();
-					OrderResult result = idempotentOrderFacade.buyMarket(accountId, stockId, 1, sameKey);
+					OrderResult result = marketOrderFacade.buyMarket(accountId, stockId, 1, sameKey);
 					(result.replayed() ? replayed : created).incrementAndGet();
 				} catch (BusinessException e) {
 					(e.getErrorCode() == ErrorCode.ORDER_REQUEST_IN_PROGRESS ? inProgress : unexpected).incrementAndGet();

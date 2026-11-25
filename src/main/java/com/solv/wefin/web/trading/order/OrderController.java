@@ -30,7 +30,7 @@ import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.dto.OrderSearchCondition;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderStatus;
-import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
+import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.domain.trading.stock.entity.Stock;
 import com.solv.wefin.domain.trading.stock.service.StockService;
@@ -57,7 +57,7 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
 	private final OrderService orderService;
-	private final IdempotentOrderFacade idempotentOrderFacade;
+	private final MarketOrderFacade marketOrderFacade;
 	private final VirtualAccountService accountService;
 	private final StockService stockService;
 
@@ -71,7 +71,7 @@ public class OrderController {
 		VirtualAccount account = accountService.getAccountByUserId(userId);
 		Stock stock = stockService.findByStockCode(request.stockCode().strip())
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
-		OrderResult result = idempotentOrderFacade.buyMarket(account.getVirtualAccountId(),
+		OrderResult result = marketOrderFacade.buyMarket(account.getVirtualAccountId(),
 			stock.getId(), request.quantity(), idempotencyKey);
 		OrderResponse response = OrderResponse.from(result.info());
 		ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
@@ -87,7 +87,7 @@ public class OrderController {
 		VirtualAccount account = accountService.getAccountByUserId(userId);
 		Stock stock = stockService.findByStockCode(request.stockCode().strip())
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
-		OrderInfo orderInfo = orderService.sellMarket(account.getVirtualAccountId(),
+		OrderInfo orderInfo = marketOrderFacade.sellMarket(account.getVirtualAccountId(),
 			stock.getId(), request.quantity());
 		OrderResponse response = OrderResponse.from(orderInfo);
 		return ApiResponse.success(response);

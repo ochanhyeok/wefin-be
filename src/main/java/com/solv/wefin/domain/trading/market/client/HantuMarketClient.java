@@ -1,6 +1,7 @@
 package com.solv.wefin.domain.trading.market.client;
 
 import com.solv.wefin.domain.trading.market.client.dto.*;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ public class HantuMarketClient {
 
     private final RestClient hantuRestClient;          // API 호출용
     private final HantuTokenManager hantuTokenManager; // 토큰 가져오기용
+    private final CircuitBreaker hantuPriceCircuitBreaker;
 
     @Value("${hantu.api.appkey}")
     private String appKey;
@@ -31,6 +33,11 @@ public class HantuMarketClient {
      * @return 현재가 시세 응답
      */
     public HantuPriceApiResponse fetchCurrentPrice(String stockCode) {
+        // 회로가 열려 있으면 호출 없이 CallNotPermittedException → MarketService 가 MARKET_API_FAILED(503)로 바꾼다
+        return hantuPriceCircuitBreaker.executeSupplier(() -> requestCurrentPrice(stockCode));
+    }
+
+    private HantuPriceApiResponse requestCurrentPrice(String stockCode) {
         return hantuRestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/uapi/domestic-stock/v1/quotations/inquire-price")

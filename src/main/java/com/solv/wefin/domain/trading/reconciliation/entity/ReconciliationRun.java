@@ -43,7 +43,8 @@ public class ReconciliationRun {
 	private Integer orderMismatches;
 	private String errorMessage;
 
-	@Column(nullable = false, columnDefinition = "TIMESTAMPTZ")
+	/** DB 기본값(now())으로 채운다. 중단 판정(failAbandoned)도 DB 시계로 재므로 앱 서버 시계와 섞지 않는다. */
+	@Column(nullable = false, insertable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
 	private OffsetDateTime startedAt;
 
 	@Column(columnDefinition = "TIMESTAMPTZ")
@@ -53,7 +54,6 @@ public class ReconciliationRun {
 		ReconciliationRun run = new ReconciliationRun();
 		run.status = Status.RUNNING;
 		run.trigger = trigger;
-		run.startedAt = OffsetDateTime.now();
 		return run;
 	}
 
