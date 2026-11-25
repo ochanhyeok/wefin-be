@@ -97,8 +97,25 @@ def JACOCO_EXCLUDES = [
 ]
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'benchmark'
+	}
 	finalizedBy tasks.jacocoTestReport
+}
+
+// 성능 측정용 벤치마크 — 수 분 걸려 일반 테스트에서 제외하고 측정할 때만 실행 (./gradlew benchmark)
+tasks.register('benchmark', Test) {
+	description = 'Runs @Tag("benchmark") performance tests.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'benchmark'
+	}
+	testLogging {
+		showStandardStreams = true
+	}
+	outputs.upToDateWhen { false }
 }
 
 tasks.jacocoTestReport {
