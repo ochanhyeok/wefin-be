@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -164,44 +165,85 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 		for (int i = 0; i < 4; i++) {
 			createAccount();
 		}
+		// 첫 대사를 검사 트랜잭션 안에서 계좌마다 주문 1건이 더 커밋될 때까지 붙잡는다.
+		// 이어지는 불일치 쿼리는 대사가 시작된 뒤 들어온 주문까지 보게 되어, 대사 도중에 주문이 끼어드는 상황이 보장된다
+		AtomicBoolean reconciling = new AtomicBoolean(false);
+		CountDownLatch orderedDuringRun = new CountDownLatch(accounts.size());
+		willAnswer(inv -> {
+			reconciling.set(true);
+			assertThat(orderedDuringRun.await(10, TimeUnit.SECONDS)).isTrue();
+			return countAccountsInCurrentTx();
+		}).given(queryRepository).countAccounts();
+
 		ExecutorService pool = Executors.newFixedThreadPool(accounts.size());
 		AtomicBoolean running = new AtomicBoolean(true);
 		ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
-		CountDownLatch done = new CountDownLatch(accounts.size());
-		for (Long account : new ArrayList<>(accounts)) {
-			pool.submit(() -> {
-				try {
-					while (running.get()) {
-						marketOrderFacade.buyMarket(account, stockId, 1, UUID.randomUUID().toString());
-					}
-				} catch (BusinessException e) {
-					// 잔고 소진(ORDER_INSUFFICIENT_BALANCE)으로 끝나는 건 정상
-					if (e.getErrorCode() != ErrorCode.ORDER_INSUFFICIENT_BALANCE) {
+		List<ReconciliationRun> runs = new ArrayList<>();
+		try {
+			for (Long account : new ArrayList<>(accounts)) {
+				pool.submit(() -> {
+					boolean counted = false;
+					try {
+						while (running.get()) {
+							marketOrderFacade.buyMarket(account, stockId, 1, UUID.randomUUID().toString());
+							if (!counted && reconciling.get()) {
+								orderedDuringRun.countDown();
+								counted = true;
+							}
+						}
+					} catch (BusinessException e) {
+						// 잔고 소진(ORDER_INSUFFICIENT_BALANCE)으로 끝나는 건 정상
+						if (e.getErrorCode() != ErrorCode.ORDER_INSUFFICIENT_BALANCE) {
+							errors.add(e);
+						}
+					} catch (Throwable e) {
 						errors.add(e);
 					}
-				} catch (Throwable e) {
-					errors.add(e);
-				} finally {
-					done.countDown();
-				}
-			});
-		}
+				});
+			}
 
-		List<ReconciliationRun> runs = new ArrayList<>();
-		for (int i = 0; i < 10; i++) {
-			runs.add(reconciliationService.run(ReconciliationRun.Trigger.MANUAL));
+			for (int i = 0; i < 10; i++) {
+				runs.add(reconciliationService.run(ReconciliationRun.Trigger.MANUAL));
+			}
+		} finally {
+			// 대사가 실패해도 작업자를 멈추고 끝난 뒤에만 cleanUp 이 데이터를 지우게 한다
+			running.set(false);
+			pool.shutdown();
+			assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
 		}
-		running.set(false);
-		assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-		pool.shutdown();
 
 		assertThat(errors).isEmpty();
-		assertThat(orderCount()).isGreaterThan(0);
+		assertThat(orderedDuringRun.getCount()).isZero();
 		for (ReconciliationRun run : runs) {
 			for (Long account : accounts) {
 				assertThat(mismatchesOf(run, account)).isEmpty();
 			}
 		}
+		for (Long account : accounts) {   // 대사와 겹쳤어도 거래가 빠지거나 반만 반영되지 않았다
+			assertThat(balance(account)).isEqualByComparingTo(ledgerSum(account));
+			assertThat(holding(account)).isEqualTo(orderCount(account)).isPositive();
+		}
+	}
+
+	@Test
+	void 멈췄던_실행이_그사이_FAILED로_정리됐으면_성공으로_덮지_않고_불일치도_남기지_않는다() {
+		Long account = createAccount();
+		jdbcTemplate.update("UPDATE virtual_account SET balance = balance + 1000 WHERE virtual_account_id = ?", account);
+		// 검사 도중 다른 실행이 failAbandoned 로 이 실행을 FAILED 로 바꾼 상황. 별도 커넥션(다른 스레드)에서 커밋한다
+		willAnswer(inv -> {
+			CompletableFuture.runAsync(() -> jdbcTemplate.update("UPDATE reconciliation_run SET status = 'FAILED', "
+				+ "error_message = '실행 중 중단됨 (제한 시간 초과)', finished_at = now() WHERE status = 'RUNNING'")).join();
+			return countAccountsInCurrentTx();
+		}).given(queryRepository).countAccounts();
+
+		assertThatThrownBy(() -> reconciliationService.run(ReconciliationRun.Trigger.MANUAL))
+			.isInstanceOf(IllegalStateException.class);
+
+		Map<String, Object> run = jdbcTemplate.queryForMap(
+			"SELECT status, error_message FROM reconciliation_run ORDER BY run_id DESC LIMIT 1");
+		assertThat(run.get("status")).isEqualTo("FAILED");
+		assertThat((String) run.get("error_message")).contains("제한 시간 초과");   // 원래 중단 사유를 덮어쓰지 않았다
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM reconciliation_mismatch", Integer.class)).isZero();
 	}
 
 	@Test
@@ -282,7 +324,17 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 			String.class, account);
 	}
 
-	private int orderCount() {
-		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders", Integer.class);
+	/** 스파이가 JPA 리포지토리 인터페이스라 실제 메서드를 부를 수 없어, 같은 값을 검사 트랜잭션 안에서 직접 센다 */
+	private int countAccountsInCurrentTx() {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM virtual_account", Integer.class);
+	}
+
+	private int orderCount(Long account) {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders WHERE virtual_account_id = ?", Integer.class, account);
+	}
+
+	private int holding(Long account) {
+		return jdbcTemplate.queryForObject("SELECT COALESCE(SUM(quantity), 0) FROM portfolio WHERE virtual_account_id = ?",
+			Integer.class, account);
 	}
 }

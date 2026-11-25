@@ -72,6 +72,10 @@ public class ReconciliationRun {
 		this.finishedAt = OffsetDateTime.now();
 	}
 
+	public boolean isRunning() {
+		return status == Status.RUNNING;
+	}
+
 	public boolean hasMismatch() {
 		return (accountMismatches != null && accountMismatches > 0) || (orderMismatches != null && orderMismatches > 0);
 	}

@@ -106,6 +106,26 @@ class AdminAuthorizationFilterTest {
     }
 
     @Test
+    @DisplayName("context path 아래로 배포해도 대사 경로의 관리자 검사를 건너뛰지 않는다")
+    void doFilterInternal_checks_admin_under_context_path() throws Exception {
+        UUID userId = UUID.randomUUID();
+        setAuthentication(userId);
+
+        doThrow(new BusinessException(ErrorCode.ADMIN_FORBIDDEN))
+                .when(adminAuthorizationService)
+                .requireAdmin(userId);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/wefin/api/admin/reconciliation/runs");
+        request.setContextPath("/wefin");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(adminAuthorizationService).requireAdmin(userId);
+    }
+
+    @Test
     @DisplayName("admin accounts 경로에서 일반 유저면 403을 반환한다")
     void doFilterInternal_returns_forbidden_when_not_admin() throws Exception {
         UUID userId = UUID.randomUUID();
