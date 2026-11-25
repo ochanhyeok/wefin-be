@@ -1,5 +1,6 @@
 package com.solv.wefin.domain.trading.order.service;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -9,11 +10,14 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.solv.wefin.domain.trading.common.MarketPriceProvider;
+import com.solv.wefin.domain.trading.common.StockInfoProvider;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderIdempotency;
 import com.solv.wefin.domain.trading.order.repository.OrderRepository;
+import com.solv.wefin.domain.trading.stock.entity.Stock;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 
@@ -21,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 멱등 주문 진입점. 트랜잭션을 직접 열지 않고 선점 → 주문 → 결과 기록을 각자 트랜잭션으로 엮는다.
+ * 시장가 주문 진입점. 트랜잭션을 직접 열지 않고 선점 → 시세 조회 → 주문 → 결과 기록을 각자 트랜잭션으로 엮는다.
  *
  * <p>선점을 주문 트랜잭션 밖에서 먼저 커밋해야 동시에 들어온 같은 키 요청이 그 기록을 보고 멈춘다.
  * 주문이 실패하면 주문 트랜잭션은 롤백되지만 선점 기록은 남아 있으므로, 실패 종류에 따라 여기서 정리한다.</p>
@@ -37,11 +41,13 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class IdempotentOrderFacade {
+public class MarketOrderFacade {
 
 	private final OrderService orderService;
 	private final OrderIdempotencyService idempotencyService;
 	private final OrderRepository orderRepository;
+	private final StockInfoProvider stockInfoProvider;
+	private final MarketPriceProvider marketPriceProvider;
 
 	public OrderResult buyMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
 		// 값싼 입력 검증을 먼저: 잘못된 요청이 선점 기록을 남기면 고친 요청이 같은 키로 막힌다
@@ -57,7 +63,9 @@ public class IdempotentOrderFacade {
 		}
 
 		try {
-			return OrderResult.created(orderService.buyMarket(virtualAccountId, stockId, quantity, idempotencyKey));
+			BigDecimal currentPrice = quote(stockId);
+			return OrderResult.created(
+				orderService.buyMarket(virtualAccountId, stockId, quantity, currentPrice, idempotencyKey));
 		} catch (BusinessException e) {
 			settleFailure(virtualAccountId, idempotencyKey, e);
 			throw e;
@@ -65,6 +73,23 @@ public class IdempotentOrderFacade {
 			releaseQuietly(virtualAccountId, idempotencyKey);
 			throw e;
 		}
+	}
+
+	/** 시장가 매도. 멱등 처리는 아직 매수에만 적용돼 있다 (ADR 0001 남은 일). */
+	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity) {
+		if (quantity == null || quantity <= 0) {
+			throw new BusinessException(ErrorCode.ORDER_INVALID_QUANTITY);
+		}
+		return orderService.sellMarket(virtualAccountId, stockId, quantity, quote(stockId));
+	}
+
+	/**
+	 * 현재가 조회. 주문 트랜잭션을 열기 전에 호출한다.
+	 * 트랜잭션 안에서 부르면 한투가 느릴 때 그 시간만큼 DB 커넥션을 쥐고 기다려, 주문과 무관한 요청까지 커넥션을 못 얻는다.
+	 */
+	private BigDecimal quote(Long stockId) {
+		Stock stock = stockInfoProvider.getStock(stockId);
+		return marketPriceProvider.getCurrentPrice(stock.getStockCode());
 	}
 
 	private OrderResult replay(OrderIdempotency record, String fingerprint) {

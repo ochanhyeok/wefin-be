@@ -36,6 +36,7 @@ import com.solv.wefin.domain.trading.market.service.MarketService;
 import com.solv.wefin.domain.trading.matching.service.LimitOrderMatchingService;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.service.LimitOrderService;
+import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.domain.trading.reconciliation.entity.ReconciliationRun;
 import com.solv.wefin.domain.trading.reconciliation.repository.ReconciliationQueryRepository;
@@ -57,6 +58,8 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 
 	@Autowired
 	private OrderService orderService;
+	@Autowired
+	private MarketOrderFacade marketOrderFacade;
 	@Autowired
 	private LimitOrderService limitOrderService;
 	@Autowired
@@ -103,8 +106,8 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 	void 매수_매도_지정가_예약_정정_체결_취소를_모두_거쳐도_대사가_일치한다() {
 		Long account = createAccount();
 
-		orderService.buyMarket(account, stockId, 5);                                     // 시장가 매수
-		orderService.sellMarket(account, stockId, 1);                                    // 시장가 매도
+		marketOrderFacade.buyMarket(account, stockId, 5, UUID.randomUUID().toString());                                     // 시장가 매수
+		marketOrderFacade.sellMarket(account, stockId, 1);                                    // 시장가 매도
 		OrderInfo limitBuy = limitOrderService.buyLimit(account, stockId, 2, new BigDecimal("120000"));
 		orderService.modifyOrder(account, limitBuy.order().getOrderNo(), new BigDecimal("110000"), 3);   // 정정: 예약금 추가
 		OrderInfo toCancel = limitOrderService.buyLimit(account, stockId, 1, new BigDecimal("90000"));
@@ -125,7 +128,7 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 	@Test
 	void 원장을_거치지_않고_잔고를_바꾸면_계좌_불일치로_잡고_자동으로_고치지_않는다() {
 		Long account = createAccount();
-		orderService.buyMarket(account, stockId, 1);
+		marketOrderFacade.buyMarket(account, stockId, 1, UUID.randomUUID().toString());
 		jdbcTemplate.update("UPDATE virtual_account SET balance = balance + 1000 WHERE virtual_account_id = ?", account);
 		BigDecimal tampered = balance(account);
 
@@ -169,7 +172,7 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 			pool.submit(() -> {
 				try {
 					while (running.get()) {
-						orderService.buyMarket(account, stockId, 1);
+						marketOrderFacade.buyMarket(account, stockId, 1, UUID.randomUUID().toString());
 					}
 				} catch (BusinessException e) {
 					// 잔고 소진(ORDER_INSUFFICIENT_BALANCE)으로 끝나는 건 정상

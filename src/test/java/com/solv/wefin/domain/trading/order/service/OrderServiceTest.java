@@ -19,7 +19,6 @@ import com.solv.wefin.domain.quest.entity.QuestEventType;
 import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
-import com.solv.wefin.domain.trading.common.MarketPriceProvider;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
 import com.solv.wefin.domain.trading.matching.event.OrderMatchedEvent;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
@@ -48,8 +47,6 @@ class OrderServiceTest {
 	@Mock
 	private PortfolioService portfolioService;
 	@Mock
-	private MarketPriceProvider marketPriceProvider;
-	@Mock
 	private StockInfoProvider stockInfoProvider;
 	@Mock
 	private ApplicationEventPublisher eventPublisher;
@@ -63,6 +60,8 @@ class OrderServiceTest {
 	@InjectMocks
 	private OrderService orderService;
 
+	private static final BigDecimal PRICE = new BigDecimal("170000");
+
 	@Test
 	void 매수_성공() {
 		// given
@@ -70,15 +69,13 @@ class OrderServiceTest {
 
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
 		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930"))
-			.willReturn(new BigDecimal("170000"));
 		given(virtualAccountService.deductBalance(eq(1L), any()))
 			.willReturn(new VirtualAccount(UUID.randomUUID()));
 		given(orderRepository.save(any()))
 			.willAnswer(invocation -> invocation.getArgument(0));
 
 		// when
-		orderService.buyMarket(1L, 1L, 20);
+		orderService.buyMarket(1L, 1L, 20, PRICE);
 
 		// then
 		verify(orderRepository).save(any());
@@ -94,13 +91,12 @@ class OrderServiceTest {
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
 		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930")).willReturn(new BigDecimal("170000"));
 		given(virtualAccountService.deductBalance(eq(1L), any())).willReturn(new VirtualAccount(UUID.randomUUID()));
 		given(orderRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
 		String key = UUID.randomUUID().toString();
 
 		// when
-		OrderInfo info = orderService.buyMarket(1L, 1L, 20, key);
+		OrderInfo info = orderService.buyMarket(1L, 1L, 20, PRICE, key);
 
 		// then
 		verify(orderIdempotencyService).markDone(1L, key, info);
@@ -111,21 +107,28 @@ class OrderServiceTest {
 		// given
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
-		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930")).willReturn(new BigDecimal("170000"));
 		given(virtualAccountService.deductBalance(any(), any()))
 			.willThrow(new BusinessException(ErrorCode.ORDER_INSUFFICIENT_BALANCE));
 
 		// when & then
-		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, UUID.randomUUID().toString()))
+		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, PRICE, UUID.randomUUID().toString()))
 			.isInstanceOf(BusinessException.class);
 		verifyNoInteractions(orderIdempotencyService);
 	}
 
 	@Test
+	void 시세가_없으면_잔고를_건드리지_않고_거절한다() {
+		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, null))
+			.isInstanceOf(BusinessException.class)
+			.extracting(e -> ((BusinessException) e).getErrorCode())
+			.isEqualTo(ErrorCode.MARKET_API_FAILED);
+		verifyNoInteractions(virtualAccountService);
+	}
+
+	@Test
 	void 수량_0_이하() {
 		// when & then
-		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 0))
+		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 0, PRICE))
 			.isInstanceOf(BusinessException.class);
 	}
 
@@ -134,14 +137,11 @@ class OrderServiceTest {
 		// given
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
-		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930"))
-			.willReturn(new BigDecimal("178000"));
 		given(virtualAccountService.deductBalance(any(), any()))
 			.willThrow(new BusinessException(ErrorCode.ORDER_INSUFFICIENT_BALANCE));
 
 		// when & then
-		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20))
+		assertThatThrownBy(() -> orderService.buyMarket(1L, 1L, 20, PRICE))
 			.isInstanceOf(BusinessException.class);
 	}
 
@@ -151,8 +151,6 @@ class OrderServiceTest {
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
 		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930"))
-			.willReturn(new BigDecimal("178000"));
 
 		VirtualAccount mockAccount = mock(VirtualAccount.class);
 		given(virtualAccountService.getAccountWithLock(1L))
@@ -170,7 +168,7 @@ class OrderServiceTest {
 			.willAnswer(invocation -> invocation.getArgument(0));
 
 		// when
-		orderService.sellMarket(1L, 1L, 10);
+		orderService.sellMarket(1L, 1L, 10, PRICE);
 
 		// then
 		verify(tradeService).createSellTrade(any(), eq(1L), eq(1L), eq(10),
@@ -185,16 +183,13 @@ class OrderServiceTest {
 		// given
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
-		given(mockStock.getStockCode()).willReturn("005930");
-		given(marketPriceProvider.getCurrentPrice("005930"))
-			.willReturn(new BigDecimal("178000"));
 		given(portfolioService.getPortfolioForUpdate(1L, 1L))
 			.willThrow(new BusinessException(ErrorCode.ORDER_STOCK_NOT_HELD));
 		given(virtualAccountService.getAccountWithLock(1L))
 			.willReturn(mock(VirtualAccount.class));
 
 		// when & then
-		assertThatThrownBy(() -> orderService.sellMarket(1L, 1L, 10))
+		assertThatThrownBy(() -> orderService.sellMarket(1L, 1L, 10, PRICE))
 			.isInstanceOf(BusinessException.class);
 	}
 
@@ -203,9 +198,6 @@ class OrderServiceTest {
 		// given
 		Stock mockStock = mock(Stock.class);
 		given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
-		given(mockStock.getStockCode()).willReturn("005630");
-		given(marketPriceProvider.getCurrentPrice("005630"))
-			.willReturn(new BigDecimal("178000"));
 		given(virtualAccountService.getAccountWithLock(1L))
 			.willReturn(mock(VirtualAccount.class));
 
@@ -215,7 +207,7 @@ class OrderServiceTest {
 			.willReturn(mockPortfolio);
 
 		// when & then
-		assertThatThrownBy(() -> orderService.sellMarket(1L, 1L, 30))
+		assertThatThrownBy(() -> orderService.sellMarket(1L, 1L, 30, PRICE))
 			.isInstanceOf(BusinessException.class);
 	}
 
@@ -345,8 +337,7 @@ class OrderServiceTest {
 			given(orderRepository.findByOrderNoForUpdate(any())).willReturn(Optional.of(order));
 			given(virtualAccountService.getAccountWithLock(1L)).willReturn(mockAccount);
 			given(stockInfoProvider.getStock(1L)).willReturn(mockStock);
-			given(mockStock.getStockCode()).willReturn("005930");
-			given(mockStock.getStockName()).willReturn("삼성전자");
+				given(mockStock.getStockName()).willReturn("삼성전자");
 			given(mockAccount.getBalance()).willReturn(BigDecimal.valueOf(5000000));
 
 			// when

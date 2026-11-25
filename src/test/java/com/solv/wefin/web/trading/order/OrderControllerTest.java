@@ -33,7 +33,7 @@ import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.entity.OrderStatus;
 import com.solv.wefin.domain.trading.order.entity.OrderType;
-import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
+import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
 import com.solv.wefin.domain.trading.order.service.OrderService;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
@@ -47,7 +47,7 @@ class OrderControllerTest {
 	@MockitoBean
 	private OrderService orderService;
 	@MockitoBean
-	private IdempotentOrderFacade idempotentOrderFacade;
+	private MarketOrderFacade marketOrderFacade;
 	@MockitoBean
 	private VirtualAccountService accountService;
 	@MockitoBean
@@ -78,7 +78,7 @@ class OrderControllerTest {
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
 		String key = UUID.randomUUID().toString();
-		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+		given(marketOrderFacade.buyMarket(1L, 1L, 10, key))
 			.willReturn(OrderResult.created(mockOrderInfo));
 
 		// when & then
@@ -107,7 +107,7 @@ class OrderControllerTest {
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
 		String key = UUID.randomUUID().toString();
-		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+		given(marketOrderFacade.buyMarket(1L, 1L, 10, key))
 			.willReturn(OrderResult.replayed(mockOrderInfo));
 
 		// when & then
@@ -130,7 +130,7 @@ class OrderControllerTest {
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
 		String key = UUID.randomUUID().toString();
-		given(idempotentOrderFacade.buyMarket(1L, 1L, 10, key))
+		given(marketOrderFacade.buyMarket(1L, 1L, 10, key))
 			.willThrow(new BusinessException(ErrorCode.ORDER_REQUEST_IN_PROGRESS));
 
 		// when & then
@@ -156,7 +156,7 @@ class OrderControllerTest {
 
 		Stock stock = mockStock(1L, "005930", "삼성전자");
 		given(stockService.findByStockCode("005930")).willReturn(Optional.of(stock));
-		given(orderService.sellMarket(anyLong(), anyLong(), anyInt()))
+		given(marketOrderFacade.sellMarket(anyLong(), anyLong(), anyInt()))
 			.willReturn(mockOrderInfo);
 
 		// when & then

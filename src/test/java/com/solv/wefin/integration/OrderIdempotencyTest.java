@@ -23,7 +23,7 @@ import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.market.service.MarketService;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.scheduler.OrderIdempotencyCleanupScheduler;
-import com.solv.wefin.domain.trading.order.service.IdempotentOrderFacade;
+import com.solv.wefin.domain.trading.order.service.MarketOrderFacade;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
 
@@ -37,7 +37,7 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 	private static final BigDecimal PRICE = new BigDecimal("100000");
 
 	@Autowired
-	private IdempotentOrderFacade facade;
+	private MarketOrderFacade facade;
 	@Autowired
 	private VirtualAccountService accountService;
 	@Autowired
