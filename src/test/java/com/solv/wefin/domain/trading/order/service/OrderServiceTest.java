@@ -57,6 +57,8 @@ class OrderServiceTest {
 	private QuestProgressService questProgressService;
 	@Mock
 	private OrderIdempotencyService orderIdempotencyService;
+	@Mock
+	private com.solv.wefin.domain.trading.ledger.service.CashLedgerService cashLedgerService;
 
 	@InjectMocks
 	private OrderService orderService;

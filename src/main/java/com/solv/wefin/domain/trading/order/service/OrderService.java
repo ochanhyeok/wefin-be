@@ -10,6 +10,8 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
+import com.solv.wefin.domain.trading.ledger.service.CashLedgerService;
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.quest.entity.QuestEventType;
 import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.domain.trading.common.TradingConstants;
@@ -51,6 +53,7 @@ public class OrderService {
 
 	private final OrderRepository orderRepository;
 	private final OrderIdempotencyService orderIdempotencyService;
+	private final CashLedgerService cashLedgerService;
 	private final PortfolioService portfolioService;
 	private final VirtualAccountService virtualAccountService;
 	private final MarketPriceProvider marketPriceProvider;
@@ -97,6 +100,8 @@ public class OrderService {
 		// 6. Order 생성 + 저장
 		Order order = orderRepository.save(new Order(virtualAccountId, stockId, OrderType.MARKET, OrderSide.BUY, quantity,
 			null, Currency.KRW, null, fee, BigDecimal.ZERO));
+		cashLedgerService.record(virtualAccountId, CashLedgerType.MARKET_BUY,
+			totalAmount.add(fee).negate(), order.getOrderId());
 
 		// 7. Trade 생성 + 저장
 		tradeService.createBuyTrade(order.getOrderId(), virtualAccountId, stockId,
@@ -172,7 +177,9 @@ public class OrderService {
 		portfolioService.deductQuantity(virtualAccountId, stockId, quantity);
 
 		// 13. 예수금 입금
-		account.deposit(totalAmount.subtract(fee).subtract(tax));
+		BigDecimal netDeposit = totalAmount.subtract(fee).subtract(tax);
+		account.deposit(netDeposit);
+		cashLedgerService.record(virtualAccountId, CashLedgerType.MARKET_SELL, netDeposit, order.getOrderId());
 
 		// 14. 실현손익 누적
 		account.addProfit(realizedAmount);
@@ -219,6 +226,8 @@ public class OrderService {
 					.setScale(0, RoundingMode.DOWN);
 			refundedAmount = remainingCost.add(remainingFee);
 			account.deposit(refundedAmount);
+			cashLedgerService.record(virtualAccountId, CashLedgerType.ORDER_CANCEL_REFUND, refundedAmount,
+				order.getOrderId());
 		} else if (order.getSide() == OrderSide.SELL) {
 			int remainingQuantity = order.getQuantity() - order.getFilledQuantity();
 			portfolioService.addHolding(virtualAccountId, order.getStockId(), remainingQuantity,
@@ -265,6 +274,8 @@ public class OrderService {
 			} else if (diff.compareTo(BigDecimal.ZERO) < 0) {
 				account.deposit(diff.abs());
 			}
+			cashLedgerService.record(virtualAccountId, CashLedgerType.ORDER_MODIFY_ADJUST, diff.negate(),
+				order.getOrderId());
 		} else if (order.getSide() == OrderSide.SELL) {
 			int diffQuantity = Math.abs(newQuantity - oldQuantity);
 			if (newQuantity > oldQuantity) {

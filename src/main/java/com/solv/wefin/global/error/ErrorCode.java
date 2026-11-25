@@ -106,6 +106,7 @@ public enum ErrorCode {
     ORDER_IDEMPOTENCY_KEY_INVALID(400, "Idempotency-Key는 UUID 형식이어야 합니다."),
     ORDER_IDEMPOTENCY_KEY_REUSED(422, "같은 Idempotency-Key로 다른 내용의 주문을 요청했습니다."),
     ORDER_REQUEST_IN_PROGRESS(409, "같은 주문을 처리 중입니다. 잠시 뒤 다시 요청해주세요."),
+    RECONCILIATION_ALREADY_RUNNING(409, "대사가 이미 실행 중입니다."),
 
     // Order - SELL
     ORDER_INSUFFICIENT_HOLDINGS(400, "보유 수량이 부족합니다."),

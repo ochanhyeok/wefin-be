@@ -18,13 +18,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
 public class AdminAuthorizationFilter extends OncePerRequestFilter {
 
-    private static final String ADMIN_ACCOUNTS_PATH_PREFIX = "/api/admin/accounts";
+    /** 관리자 권한을 검사하는 경로. 그 밖의 /api/admin/** 는 SecurityConfig 에서 permitAll 이다 */
+    private static final List<String> PROTECTED_PATH_PREFIXES = List.of(
+            "/api/admin/accounts",
+            "/api/admin/reconciliation"
+    );
 
     private final ObjectProvider<AdminAuthorizationService> adminAuthorizationServiceProvider;
     private final ObjectMapper objectMapper;
@@ -65,8 +70,8 @@ public class AdminAuthorizationFilter extends OncePerRequestFilter {
 
     private boolean isAdminPath(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path.equals(ADMIN_ACCOUNTS_PATH_PREFIX)
-                || path.startsWith(ADMIN_ACCOUNTS_PATH_PREFIX + "/");
+        return PROTECTED_PATH_PREFIXES.stream()
+                .anyMatch(prefix -> path.equals(prefix) || path.startsWith(prefix + "/"));
     }
 
     private void writeError(HttpServletResponse response, ErrorCode errorCode) throws IOException {

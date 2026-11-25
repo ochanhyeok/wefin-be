@@ -24,6 +24,9 @@ class VirtualAccountServiceTest {
 	@Mock
 	private VirtualAccountRepository accountRepository;
 
+	@Mock
+	private com.solv.wefin.domain.trading.ledger.service.CashLedgerService cashLedgerService;
+
 	@InjectMocks
 	private VirtualAccountService accountService;
 
@@ -75,7 +78,7 @@ class VirtualAccountServiceTest {
 		when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account));
 
 		// when
-		accountService.depositBalance(1L, new BigDecimal("120000"));
+		accountService.depositBalance(1L, new BigDecimal("120000"), com.solv.wefin.domain.trading.ledger.entity.CashLedgerType.QUEST_REWARD);
 
 		// then
 		assertThat(account.getBalance()).isEqualTo(new BigDecimal("10120000"));

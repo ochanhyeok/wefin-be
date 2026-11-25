@@ -1,5 +1,7 @@
 package com.solv.wefin.domain.trading.order.service;
 
+import com.solv.wefin.domain.trading.ledger.service.CashLedgerService;
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
@@ -28,6 +30,7 @@ public class LimitOrderService {
 
     private final StockInfoProvider stockInfoProvider;
     private final VirtualAccountService virtualAccountService;
+    private final CashLedgerService cashLedgerService;
     private final PortfolioService portfolioService;
     private final OrderRepository orderRepository;
 
@@ -55,6 +58,8 @@ public class LimitOrderService {
                 requestPrice, Currency.KRW, null, fee, BigDecimal.ZERO
         );
         orderRepository.save(order);
+        cashLedgerService.record(virtualAccountId, CashLedgerType.LIMIT_BUY_RESERVE,
+                totalAmount.add(fee).negate(), order.getOrderId());
 
         // 6. OrderInfo 반환
         return new OrderInfo(

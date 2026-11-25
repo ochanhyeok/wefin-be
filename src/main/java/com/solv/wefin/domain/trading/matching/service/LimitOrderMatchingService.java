@@ -1,5 +1,7 @@
 package com.solv.wefin.domain.trading.matching.service;
 
+import com.solv.wefin.domain.trading.ledger.service.CashLedgerService;
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.trading.account.entity.VirtualAccount;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
@@ -35,6 +37,7 @@ public class LimitOrderMatchingService {
     private final ApplicationEventPublisher eventPublisher;
     private final VirtualAccountService virtualAccountService;
     private final PortfolioService portfolioService;
+    private final CashLedgerService cashLedgerService;
 
     /**
      * 지정가 주문을 체결 처리한다.
@@ -77,6 +80,8 @@ public class LimitOrderMatchingService {
                 order.getVirtualAccountId());
         if (refund.compareTo(BigDecimal.ZERO) > 0) {
             account.deposit(refund);
+            cashLedgerService.record(order.getVirtualAccountId(), CashLedgerType.LIMIT_BUY_FILL_REFUND, refund,
+                    order.getOrderId());
         }
 
         // 포트폴리오에 실제 보유 증가 (체결가가 새 매입 단가)
@@ -124,6 +129,8 @@ public class LimitOrderMatchingService {
         VirtualAccount account = virtualAccountService.getAccountWithLock(
                 order.getVirtualAccountId());
         account.deposit(netDeposit);
+        cashLedgerService.record(order.getVirtualAccountId(), CashLedgerType.LIMIT_SELL_FILL, netDeposit,
+                order.getOrderId());
         account.addProfit(realizedProfit);
 
         // 포트폴리오는 건드리지 않음 (생성 시점에 이미 deductQuantity 완료)

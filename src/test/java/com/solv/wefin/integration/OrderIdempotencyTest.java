@@ -114,7 +114,7 @@ class OrderIdempotencyTest extends IntegrationTestBase {
 		String key = newKey();
 		assertErrorCode(() -> facade.buyMarket(accountId, stockId, 200, key), ErrorCode.ORDER_INSUFFICIENT_BALANCE);
 
-		accountService.depositBalance(accountId, new BigDecimal("100000000"));
+		accountService.depositBalance(accountId, new BigDecimal("100000000"), com.solv.wefin.domain.trading.ledger.entity.CashLedgerType.QUEST_REWARD);
 
 		// 거절도 확정된 결과라 같은 키는 같은 답을 받는다. 다시 사려면 새 키(새 의도)로 보낸다
 		assertErrorCode(() -> facade.buyMarket(accountId, stockId, 200, key), ErrorCode.ORDER_INSUFFICIENT_BALANCE);

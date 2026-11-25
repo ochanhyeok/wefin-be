@@ -1,5 +1,6 @@
 package com.solv.wefin.domain.quest.service;
 
+import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.auth.entity.User;
 import com.solv.wefin.domain.auth.repository.UserRepository;
 import com.solv.wefin.domain.quest.entity.DailyQuest;
@@ -78,7 +79,7 @@ public class UserQuestService {
         VirtualAccount account = virtualAccountService.getAccountByUserId(userId);
         BigDecimal rewardAmount = BigDecimal.valueOf(userQuest.getDailyQuest().getReward());
 
-        virtualAccountService.depositBalance(account.getVirtualAccountId(), rewardAmount);
+        virtualAccountService.depositBalance(account.getVirtualAccountId(), rewardAmount, CashLedgerType.QUEST_REWARD);
         userQuest.markRewarded();
 
         return userQuest;
