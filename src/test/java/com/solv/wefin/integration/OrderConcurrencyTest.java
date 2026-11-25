@@ -321,6 +321,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		// given - 같은 의도(따닥): 동일 멱등키를 5개 동시 요청이 공유한다 (더블클릭/네트워크 재시도)
 		int duplicateRequests = 5;
 		String sameKey = UUID.randomUUID().toString();
+		BigDecimal startBalance = balance();
 		ExecutorService executor = Executors.newFixedThreadPool(duplicateRequests);
 		CountDownLatch ready = new CountDownLatch(duplicateRequests);
 		CountDownLatch start = new CountDownLatch(1);
@@ -362,5 +363,70 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		assertThat(created.get()).isEqualTo(1);
 		assertThat(replayed.get() + inProgress.get()).isEqualTo(duplicateRequests - 1);
 		assertThat(unexpected.get()).isZero();
+		// 주문 수만이 아니라 돈과 수량도 한 번만 움직였는지
+		BigDecimal price = new BigDecimal("1500000");
+		BigDecimal fee = price.multiply(new BigDecimal("0.00015")).setScale(0, RoundingMode.DOWN);
+		assertThat(balance()).isEqualByComparingTo(startBalance.subtract(price.add(fee)));
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM trade WHERE virtual_account_id = ?",
+			Integer.class, accountId)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject("SELECT quantity FROM portfolio WHERE virtual_account_id = ? AND stock_id = ?",
+			Integer.class, accountId, stockId)).isEqualTo(1);
+	}
+
+	@Test
+	void 같은_키_동시_요청이_시세_장애로_선점_해제를_반복해도_기록_없이_주문하지_않는다() throws Exception {
+		// given - 캐시에 없는 다른 종목의 시세 조회가 503 으로 실패한다. 실패한 요청은 선점을 지우고,
+		// 그 사이 다른 요청은 "선점 실패 → 기록 조회 → 기록 없음"을 만날 수 있다
+		String failingCode = jdbcTemplate.queryForObject(
+			"SELECT stock_code FROM stock WHERE stock_code <> '005930' ORDER BY stock_id LIMIT 1", String.class);
+		Long failingStockId = jdbcTemplate.queryForObject(
+			"SELECT stock_id FROM stock WHERE stock_code = ?", Long.class, failingCode);
+		given(hantuMarketClient.fetchCurrentPrice(failingCode))
+			.willThrow(new BusinessException(ErrorCode.MARKET_API_FAILED));
+		BigDecimal startBalance = balance();
+		int requests = 10;
+		String sameKey = UUID.randomUUID().toString();
+		ExecutorService executor = Executors.newFixedThreadPool(requests);
+		CountDownLatch start = new CountDownLatch(1);
+		CountDownLatch done = new CountDownLatch(requests);
+		AtomicInteger expected = new AtomicInteger(0);
+		AtomicInteger unexpected = new AtomicInteger(0);
+
+		// when
+		for (int i = 0; i < requests; i++) {
+			executor.submit(() -> {
+				try {
+					start.await();
+					marketOrderFacade.buyMarket(accountId, failingStockId, 1, sameKey);
+					unexpected.incrementAndGet();   // 시세가 없으니 성공하면 안 된다
+				} catch (BusinessException e) {
+					boolean ok = e.getErrorCode().getStatus() >= 500
+						|| e.getErrorCode() == ErrorCode.ORDER_REQUEST_IN_PROGRESS;
+					(ok ? expected : unexpected).incrementAndGet();
+				} catch (Exception e) {
+					unexpected.incrementAndGet();
+					log.warn("예상 밖 오류", e);
+				} finally {
+					done.countDown();
+				}
+			});
+		}
+		start.countDown();
+		assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+		executor.shutdown();
+
+		// then - 주문·잔고 변화 없음, 선점 기록도 남지 않아 시세가 돌아오면 같은 키로 재시도할 수 있다
+		assertThat(unexpected.get()).isZero();
+		assertThat(expected.get()).isEqualTo(requests);
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM orders WHERE virtual_account_id = ?",
+			Integer.class, accountId)).isZero();
+		assertThat(balance()).isEqualByComparingTo(startBalance);
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM order_idempotency WHERE virtual_account_id = ?",
+			Integer.class, accountId)).isZero();
+	}
+
+	private BigDecimal balance() {
+		return jdbcTemplate.queryForObject("SELECT balance FROM virtual_account WHERE virtual_account_id = ?",
+			BigDecimal.class, accountId);
 	}
 }

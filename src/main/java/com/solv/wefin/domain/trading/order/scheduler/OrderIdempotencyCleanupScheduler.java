@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.solv.wefin.domain.trading.order.repository.OrderIdempotencyRepository;
+import com.solv.wefin.domain.trading.order.service.OrderIdempotencyService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +40,8 @@ public class OrderIdempotencyCleanupScheduler {
 	public int purgeExpired() {
 		int total = 0;
 		for (int i = 0; i < MAX_BATCHES_PER_RUN; i++) {
-			Integer deleted = transactionTemplate.execute(status -> repository.deleteExpired(RETENTION_HOURS, BATCH_SIZE));
+			Integer deleted = transactionTemplate.execute(status -> repository.deleteExpired(RETENTION_HOURS,
+				OrderIdempotencyService.PROCESSING_LEASE.toSeconds(), BATCH_SIZE));
 			int count = deleted == null ? 0 : deleted;
 			total += count;
 			if (count < BATCH_SIZE) {

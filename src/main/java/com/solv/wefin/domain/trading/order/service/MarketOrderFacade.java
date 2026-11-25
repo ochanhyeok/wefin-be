@@ -5,20 +5,21 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 import org.springframework.stereotype.Service;
 
 import com.solv.wefin.domain.trading.common.MarketPriceProvider;
 import com.solv.wefin.domain.trading.common.StockInfoProvider;
+import com.solv.wefin.domain.trading.order.dto.IdempotencyClaim;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
 import com.solv.wefin.domain.trading.order.dto.OrderResult;
 import com.solv.wefin.domain.trading.order.entity.Order;
 import com.solv.wefin.domain.trading.order.entity.OrderIdempotency;
 import com.solv.wefin.domain.trading.order.entity.OrderSide;
 import com.solv.wefin.domain.trading.order.repository.OrderRepository;
+import com.solv.wefin.domain.trading.order.service.OrderIdempotencyService.ClaimResult;
 import com.solv.wefin.domain.trading.stock.entity.Stock;
 import com.solv.wefin.global.error.BusinessException;
 import com.solv.wefin.global.error.ErrorCode;
@@ -53,13 +54,13 @@ public class MarketOrderFacade {
 
 	public OrderResult buyMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
 		return executeOnce(virtualAccountId, stockId, quantity, idempotencyKey, OrderSide.BUY,
-			price -> orderService.buyMarket(virtualAccountId, stockId, quantity, price, idempotencyKey));
+			(price, claim) -> orderService.buyMarket(virtualAccountId, stockId, quantity, price, claim));
 	}
 
 	/** 시장가 매도. 매수와 같은 이유(즉시 체결이라 되돌릴 수 없음)로 같은 멱등 규칙을 적용한다. */
 	public OrderResult sellMarket(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey) {
 		return executeOnce(virtualAccountId, stockId, quantity, idempotencyKey, OrderSide.SELL,
-			price -> orderService.sellMarket(virtualAccountId, stockId, quantity, price, idempotencyKey));
+			(price, claim) -> orderService.sellMarket(virtualAccountId, stockId, quantity, price, claim));
 	}
 
 	/**
@@ -67,7 +68,7 @@ public class MarketOrderFacade {
 	 * 지문에 매수·매도를 넣어, 같은 키로 매수 뒤 매도를 보내면 내용이 다른 요청(422)으로 거절된다.
 	 */
 	private OrderResult executeOnce(Long virtualAccountId, Long stockId, Integer quantity, String idempotencyKey,
-		OrderSide side, Function<BigDecimal, OrderInfo> order) {
+		OrderSide side, BiFunction<BigDecimal, IdempotencyClaim, OrderInfo> order) {
 		// 값싼 입력 검증을 먼저: 잘못된 요청이 선점 기록을 남기면 고친 요청이 같은 키로 막힌다
 		validateKey(idempotencyKey);
 		if (quantity == null || quantity <= 0) {
@@ -75,18 +76,19 @@ public class MarketOrderFacade {
 		}
 
 		String fingerprint = fingerprint(side, "MARKET", stockId, quantity);
-		Optional<OrderIdempotency> existing = idempotencyService.claim(virtualAccountId, idempotencyKey, fingerprint);
-		if (existing.isPresent()) {
-			return replay(existing.get(), fingerprint);
+		ClaimResult result = idempotencyService.claim(virtualAccountId, idempotencyKey, fingerprint);
+		if (!result.isClaimed()) {
+			return replay(result.existing(), fingerprint);
 		}
 
+		IdempotencyClaim claim = result.claim();
 		try {
-			return OrderResult.created(order.apply(quote(stockId)));
+			return OrderResult.created(order.apply(quote(stockId), claim));
 		} catch (BusinessException e) {
-			settleFailure(virtualAccountId, idempotencyKey, e);
+			settleFailure(claim, e);
 			throw e;
 		} catch (RuntimeException e) {
-			releaseQuietly(virtualAccountId, idempotencyKey);
+			releaseQuietly(claim);
 			throw e;
 		}
 	}
@@ -132,26 +134,27 @@ public class MarketOrderFacade {
 	/**
 	 * 4xx(잔고 부족 등)는 같은 요청을 다시 보내도 결과가 같은 확정 거절이라 기록한다.
 	 * 5xx(시세 API 장애 등)는 일시적 오류라 선점을 풀어 같은 키로 재시도하게 한다.
+	 * 둘 다 이 요청의 토큰으로만 반영되므로, 선점이 이미 다른 요청에게 넘어갔으면(markDone 409) 아무것도 바꾸지 않는다.
 	 */
-	private void settleFailure(Long virtualAccountId, String key, BusinessException e) {
+	private void settleFailure(IdempotencyClaim claim, BusinessException e) {
 		if (e.getErrorCode().getStatus() >= 500) {
-			releaseQuietly(virtualAccountId, key);
+			releaseQuietly(claim);
 			return;
 		}
 		try {
-			idempotencyService.markFailed(virtualAccountId, key, e.getErrorCode());
+			idempotencyService.markFailed(claim, e.getErrorCode());
 		} catch (RuntimeException recordFailure) {
 			// 기록에 실패해도 원래 거절은 그대로 돌려준다. 기록은 PROCESSING 으로 남았다가 리스가 끝나면 재선점된다.
-			log.warn("멱등 거절 기록 실패 accountId={} key={}", virtualAccountId, key, recordFailure);
+			log.warn("멱등 거절 기록 실패 accountId={} key={}", claim.virtualAccountId(), claim.idempotencyKey(), recordFailure);
 		}
 	}
 
-	private void releaseQuietly(Long virtualAccountId, String key) {
+	private void releaseQuietly(IdempotencyClaim claim) {
 		try {
-			idempotencyService.release(virtualAccountId, key);
+			idempotencyService.release(claim);
 		} catch (RuntimeException releaseFailure) {
 			// DB 장애로 해제도 실패하면 리스가 끝난 뒤 재선점된다(그 사이 재시도는 409)
-			log.warn("멱등 선점 해제 실패 accountId={} key={}", virtualAccountId, key, releaseFailure);
+			log.warn("멱등 선점 해제 실패 accountId={} key={}", claim.virtualAccountId(), claim.idempotencyKey(), releaseFailure);
 		}
 	}
 
