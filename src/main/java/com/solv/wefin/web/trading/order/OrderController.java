@@ -73,24 +73,27 @@ public class OrderController {
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
 		OrderResult result = marketOrderFacade.buyMarket(account.getVirtualAccountId(),
 			stock.getId(), request.quantity(), idempotencyKey);
-		OrderResponse response = OrderResponse.from(result.info());
+		return toResponse(result);
+	}
+
+	private static ResponseEntity<ApiResponse<OrderResponse>> toResponse(OrderResult result) {
 		ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
 		if (result.replayed()) {
 			builder.header(REPLAYED_HEADER, "true");
 		}
-		return builder.body(ApiResponse.success(response));
+		return builder.body(ApiResponse.success(OrderResponse.from(result.info())));
 	}
 
 	@PostMapping("/sell")
-	public ApiResponse<OrderResponse> sell(@AuthenticationPrincipal UUID userId,
-										   @Valid @RequestBody OrderSellRequest request) {
+	public ResponseEntity<ApiResponse<OrderResponse>> sell(@AuthenticationPrincipal UUID userId,
+										   @Valid @RequestBody OrderSellRequest request,
+										   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 		VirtualAccount account = accountService.getAccountByUserId(userId);
 		Stock stock = stockService.findByStockCode(request.stockCode().strip())
 			.orElseThrow(() -> new BusinessException(ErrorCode.MARKET_STOCK_NOT_FOUND));
-		OrderInfo orderInfo = marketOrderFacade.sellMarket(account.getVirtualAccountId(),
-			stock.getId(), request.quantity());
-		OrderResponse response = OrderResponse.from(orderInfo);
-		return ApiResponse.success(response);
+		OrderResult result = marketOrderFacade.sellMarket(account.getVirtualAccountId(),
+			stock.getId(), request.quantity(), idempotencyKey);
+		return toResponse(result);
 	}
 
 	@PutMapping("/{orderNo}")

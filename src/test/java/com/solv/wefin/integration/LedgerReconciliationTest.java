@@ -107,7 +107,7 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 		Long account = createAccount();
 
 		marketOrderFacade.buyMarket(account, stockId, 5, UUID.randomUUID().toString());                                     // 시장가 매수
-		marketOrderFacade.sellMarket(account, stockId, 1);                                    // 시장가 매도
+		marketOrderFacade.sellMarket(account, stockId, 1, UUID.randomUUID().toString());                                    // 시장가 매도
 		OrderInfo limitBuy = limitOrderService.buyLimit(account, stockId, 2, new BigDecimal("120000"));
 		orderService.modifyOrder(account, limitBuy.order().getOrderNo(), new BigDecimal("110000"), 3);   // 정정: 예약금 추가
 		OrderInfo toCancel = limitOrderService.buyLimit(account, stockId, 1, new BigDecimal("90000"));

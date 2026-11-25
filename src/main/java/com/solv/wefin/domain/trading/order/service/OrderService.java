@@ -124,6 +124,15 @@ public class OrderService {
 			totalAmount, BigDecimal.ZERO, BigDecimal.ZERO, account.getBalance());
 	}
 
+	/** 멱등 시장가 매도. 매수와 같이 주문과 멱등 완료 기록을 한 트랜잭션에 묶는다. */
+	@Transactional(timeout = ORDER_TX_TIMEOUT_SECONDS)
+	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice,
+		String idempotencyKey) {
+		OrderInfo info = sellMarket(virtualAccountId, stockId, quantity, currentPrice);
+		orderIdempotencyService.markDone(virtualAccountId, idempotencyKey, info);
+		return info;
+	}
+
 	/** 시장가 매도. 현재가는 매수와 같은 이유로 트랜잭션 밖에서 조회해 넘긴다. */
 	@Transactional
 	public OrderInfo sellMarket(Long virtualAccountId, Long stockId, Integer quantity, BigDecimal currentPrice) {

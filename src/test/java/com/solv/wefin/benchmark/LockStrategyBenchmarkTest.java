@@ -219,12 +219,21 @@ class LockStrategyBenchmarkTest {
 			});
 		}
 
-		ready.await();
-		long wallStart = System.nanoTime();
-		start.countDown();
-		boolean finished = done.await(RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-		long wallNanos = System.nanoTime() - wallStart;
-		pool.shutdownNow();
+		boolean finished;
+		long wallNanos;
+		try {
+			// 준비 중(커넥션 획득 등) 실패한 작업은 ready 를 세지 않으므로, 여기서도 시간 제한을 둬야 멈추지 않는다
+			boolean allReady = ready.await(RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			assertThat(errors).as("%s %d스레드 준비 중 예외", strategy.label, threads).isEmpty();
+			assertThat(allReady).as("%s %d스레드가 %d초 안에 준비돼야 한다", strategy.label, threads, RUN_TIMEOUT_SECONDS)
+					.isTrue();
+			long wallStart = System.nanoTime();
+			start.countDown();
+			finished = done.await(RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			wallNanos = System.nanoTime() - wallStart;
+		} finally {
+			pool.shutdownNow();
+		}
 
 		assertThat(finished).as("%s %d스레드가 %d초 안에 끝나야 한다", strategy.label, threads, RUN_TIMEOUT_SECONDS)
 				.isTrue();

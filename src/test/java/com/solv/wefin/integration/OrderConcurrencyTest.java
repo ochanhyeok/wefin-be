@@ -178,7 +178,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < 5; i++) {
 			executor.submit(() -> {
 				try {
-					marketOrderFacade.sellMarket(accountId, stockId, 1);
+					marketOrderFacade.sellMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 					sellSuccess.incrementAndGet();
 				} catch (Exception e) {
 					sellFail.incrementAndGet();
@@ -245,7 +245,7 @@ public class OrderConcurrencyTest extends IntegrationTestBase {
 		for (int i = 0; i < threadCount; i++) {
 			executor.submit(() -> {
 				try {
-					marketOrderFacade.sellMarket(accountId, stockId, 1);
+					marketOrderFacade.sellMarket(accountId, stockId, 1, UUID.randomUUID().toString());
 					successCount.incrementAndGet();
 				} catch (Exception e) {
 					log.info("매도 실패: {}", e.getMessage());
