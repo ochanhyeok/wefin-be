@@ -5,7 +5,7 @@
 | 주제 | 글 |
 |---|---|
 | 멱등키 | [토스페이먼츠, 멱등성이 뭔가요?](https://docs.tosspayments.com/blog/what-is-idempotency) · [토스페이먼츠 개발자센터, 멱등키](https://docs.tosspayments.com/guides/using-api/idempotency-key) · [Brandur(Stripe 출신), Implementing Stripe-like Idempotency Keys in Postgres](https://brandur.org/idempotency-keys) |
-| 원장과 대사 | [토스, 레거시 결제 원장을 확장 가능한 시스템으로](https://toss.tech/article/payments-legacy-5) · [Stripe, Ledger](https://stripe.dev/blog/ledger-stripe-system-for-tracking-and-validating-money-movement) |
+| 원장과 대사 | [토스, 레거시 결제 원장을 확장 가능한 시스템으로](https://toss.tech/article/payments-legacy-5) · [Stripe, Ledger](https://stripe.dev/blog/ledger-stripe-system-for-tracking-and-validating-money-movement) · [Martin Kleppmann, Accounting for Computer Scientists](https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html) (러너스하이 피드백 세션에서 정산 참고로 소개) |
 | 외부 API 장애 격리 | [토스, 토스는 Gateway 이렇게 씁니다](https://toss.tech/article/slash23-server) · [토스, 레거시 결제 원장(타임아웃 정렬)](https://toss.tech/article/payments-legacy-5) · [우아한형제들, 설정 점검(Hikari connection-timeout 3초)](https://techblog.woowahan.com/7242/) |
 | 잔고 차감 동시성 | [G마켓, 레거시 시스템의 성능과 정합성 두 마리 토끼 잡기](https://dev.gmarket.com/44) · [컬리, 신규 서비스 배포 전에 실험과 개선을 반복한 이야기](https://helloworld.kurly.com/blog/vsms-performance-experiment/) |
 
@@ -43,6 +43,7 @@
 **다른 점과 이유.**
 - 토스는 신·구 원장을 함께 운영하던 기간이라 구원장이라는 정답이 있었고, 그래서 5분마다 자동 보정할 수 있었습니다. WeFin에는 잔고와 원장 외에 정답으로 삼을 세 번째 기록이 없습니다. 잔고가 틀렸는지 원장이 빠졌는지 원인을 봐야 알기 때문에 자동 보정하지 않습니다.
 - Stripe는 복식부기로 중간 계정이 0이 되는지 봅니다. WeFin의 현금은 사용자 계좌와 시장 사이에서만 움직여 중간 계정이 없고, 복식부기로 바꿔도 새로 잡히는 오류가 없습니다(ADR 0002 2.1).
+- Kleppmann 글은 복식부기를 계좌를 노드, 거래를 간선으로 보는 그래프로 설명하고, 모든 잔액의 합이 0이라는 불변식으로 한쪽만 기록된 거래를 잡는다고 합니다. WeFin에 "시장" 계좌를 두고 매수마다 사용자 -X, 시장 +X를 쓰면 합은 0이 되지만, 두 줄을 같은 코드가 한 번에 쓰므로 그 코드가 금액을 틀리면 두 줄이 같이 틀려 합은 여전히 0입니다. WeFin이 실제로 놓칠 수 있는 오류는 "잔고만 바뀌고 원장이 없음"과 "금액 계산이 틀림"이라, 대신 서로 다른 경로로 쓰이는 두 기록끼리 맞춰 봅니다. 잔고와 원장(계좌 대사), 원장과 체결 내역(주문 대사)입니다. 수수료 수익 계정이나 사용자 간 송금처럼 시장 말고 다른 상대 계정이 생기면 복식부기로 바꿉니다.
 
 **적용한 것: 보정도 원장 INSERT로만 (Stripe).** 기존 WeFin은 불일치를 기록만 하고, 고치는 방법은 정해 두지 않았습니다. Stripe처럼 사람이 원인을 확인한 뒤 원장에 조정 항목을 추가하는 관리자 API를 넣었습니다(`POST /api/admin/reconciliation/adjustments`, `CashLedgerType.ADJUSTMENT`, V59).
 - 원장이 빠진 경우: 잔고는 두고 원장에만 조정 항목을 추가합니다.
