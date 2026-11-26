@@ -32,7 +32,7 @@ public interface VirtualAccountRepository extends JpaRepository<VirtualAccount, 
 	 *
 	 * <p>잔고 가드(balance >= amount)를 WHERE 에 넣어 검증과 차감을 단일 문장으로 처리한다.
 	 * read-then-write 틈이 없어 동시 차감의 Lost Update 를 락/재시도 없이 원천 차단한다.
-	 * 3-way 벤치마크에서 전 경합도 최고 처리량(비관적 대비 ~2배)으로 측정돼 핫한 잔고 가드에 채택.</p>
+	 * 3-way 벤치마크에서 전 경합도 최고 처리량(동시 20건에서 비관적 대비 약 1.9배)으로 측정돼 핫한 잔고 가드에 채택.</p>
 	 *
 	 * @return 갱신된 행 수. 0 이면 잔고 부족(또는 계좌 없음) — 호출부에서 원인 구분.
 	 */
