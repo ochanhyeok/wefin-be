@@ -27,6 +27,29 @@ timeline
 
 ---
 
+## 용어
+
+문서와 코드 주석에서 쓰는 말이 표준 용어와 다른 경우가 있어, 면접에서는 오른쪽 표준 용어로 말합니다.
+
+| 이 문서·코드의 표현 | 표준 용어로 말하면 |
+|---|---|
+| 선점, 재선점 | 멱등키를 PROCESSING으로 INSERT(키 획득), 리스 만료 후 키 재획득 |
+| 재전송 | 저장해 둔 첫 응답 재반환 (Stripe 등에서 말하는 idempotent replay) |
+| 계좌별 키 | 유일성 범위가 (virtual_account_id, idempotency_key)인 멱등키 |
+| 리스 | lease. 처리 중 키의 유효 시간, DB `now()` 기준 |
+| 펜싱 토큰 | fencing token. 키를 획득할 때마다 새로 발급, 일치할 때만 DONE 반영 |
+| 원자적 UPDATE | 조건부 UPDATE 한 문장 (`UPDATE ... WHERE balance >= :amount`), 0행이면 실패 |
+| 단식 원장 | 단식부기 방식의 append-only 원장 |
+| 대사 | reconciliation. 잔고와 원장 합계, 주문별 원장과 체결 내역 비교 |
+| 회로가 열림 | 서킷 브레이커 OPEN 상태 (이후 HALF_OPEN에서 시험 호출 3건) |
+| 업무 오류 | 비즈니스 오류. 한투는 HTTP 200에 `rt_cd != "0"`으로 보냄 |
+| 연결·응답 타임아웃 | connect timeout, read timeout |
+| 한투 스텁 서버 | 테스트용 stub HTTP 서버 (`HantuStubServer`) |
+| 트랜잭션 잠금 / 세션 잠금 (Flyway) | 트랜잭션 단위 advisory lock / 세션 단위 advisory lock (`spring.flyway.postgresql.transactional-lock`) |
+| HTTP 계약 테스트 (예전 표현) | `@SpringBootTest` + MockMvc API 통합 테스트. Pact 같은 consumer-driven contract test가 아님 |
+
+---
+
 ## 1. 잔고 차감: 비관적 락 → 원자적 UPDATE
 
 ### 원래 코드
