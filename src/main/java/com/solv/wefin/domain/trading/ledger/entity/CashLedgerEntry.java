@@ -42,6 +42,9 @@ public class CashLedgerEntry {
 
 	private Long orderId;
 
+	/** 조정 사유. ADJUSTMENT 에만 쓰고, 그 외 항목은 종류 이름으로 경로를 알 수 있어 비워 둔다 */
+	private String memo;
+
 	@Column(nullable = false, insertable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
 	private OffsetDateTime createdAt;
 
@@ -50,5 +53,11 @@ public class CashLedgerEntry {
 		this.entryType = entryType;
 		this.amount = amount;
 		this.orderId = orderId;
+	}
+
+	public static CashLedgerEntry adjustment(Long virtualAccountId, BigDecimal amount, String memo) {
+		CashLedgerEntry entry = new CashLedgerEntry(virtualAccountId, CashLedgerType.ADJUSTMENT, amount, null);
+		entry.memo = memo;
+		return entry;
 	}
 }
