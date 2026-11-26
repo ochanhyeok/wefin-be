@@ -21,5 +21,7 @@ public enum CashLedgerType {
 	/** 미체결 매수 주문 정정 시 예약금 차액 (추가 차감 -, 환불 +) */
 	ORDER_MODIFY_ADJUST,
 	/** 퀘스트 보상 지급 */
-	QUEST_REWARD
+	QUEST_REWARD,
+	/** 대사 불일치를 관리자가 원인 확인 후 맞추는 조정. 사유(memo) 필수 */
+	ADJUSTMENT
 }

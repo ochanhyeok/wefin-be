@@ -72,6 +72,14 @@
 불일치가 나면 `reconciliation_mismatch`에 (계좌, 주문, 기대값, 실제값)을 남기고 에러 로그를 남긴다.
 자동으로 잔고를 원장에 맞추지 않는다. 원장 기록이 빠진 것인지 잔고가 틀린 것인지는 원인을 봐야 안다. 확인 없이 돈을 움직이면 오류가 하나 더 생긴다.
 
+**고치는 방법 (2026-11-26 추가).** Stripe Ledger처럼 사람이 원인을 확인한 뒤 원장에 조정 항목을 추가한다. 원장은 여전히 INSERT만 한다 ([references.md](../references.md) 2절).
+
+- `POST /api/admin/reconciliation/adjustments` (`LedgerAdjustmentService`), 원장 종류 `ADJUSTMENT`, 사유 `memo` 필수 (V59, 서비스와 DB 제약 양쪽)
+- 원장 기록이 빠진 경우: `applyToBalance=false`로 원장에만 추가
+- 잔고가 잘못 바뀐 경우: 원장 없이 바뀐 금액을 `false`로 먼저 인정하고, 되돌리는 금액을 `true`로 잔고와 함께 반영. 두 줄이 남아 무엇을 어떻게 고쳤는지 추적된다
+- 주문과 같은 계좌 락(`findByIdForUpdate`)을 잡아 조정 중 주문이 잔고를 바꿔도 어긋나지 않는다
+- 맞춘 뒤에는 수동 실행으로 다시 대사한다
+
 ### 2.4 실행 관리 (작성가이드 7번: 자동화)
 
 | 상황 | 처리 |
@@ -100,7 +108,7 @@
 
 ## 4. 검증
 
-`LedgerReconciliationTest` (Testcontainers PostgreSQL 16, 9개)
+`LedgerReconciliationTest` (Testcontainers PostgreSQL 16, 12개)
 
 | 시나리오 | 기대 |
 |---|---|
@@ -113,8 +121,12 @@
 | 주문 대사 쿼리 예외 | FAILED + 원인 기록, 다음 실행 정상 |
 | 검사 도중 다른 실행이 이 실행을 FAILED로 정리 | 성공으로 덮지 않음, 원래 중단 사유 유지, 불일치 행 0 |
 | 트랜잭션 밖에서 원장 기록 | `IllegalTransactionStateException` |
+| 계좌 개설 원장 삭제 → 원장에만 조정 | 조정 뒤 대사 일치, 잔고 그대로 |
+| 잔고 +1,000 → 인정(+1,000) 뒤 회수(-1,000, 잔고 반영) | 원래 잔고, 대사 일치, 조정 2줄과 사유 남음 |
+| 사유 없는 조정, 잔고보다 큰 회수, 사유 없이 DB 직접 INSERT | 각각 400, 잔고 부족, CHECK 제약 위반. 잔고·원장 변화 없음 |
 
 `AdminAuthorizationFilterTest`: 대사 경로에 일반 사용자 403, `/wefin` context path 아래에서도 관리자 검사 수행.
+`ReconciliationAdminControllerTest`: 조정 요청 전달, 사유가 비면 400.
 `OrderServiceTest`: 매수·매도·취소·정정 성공 시 원장 기록의 계좌·유형·금액·주문 ID 검증.
 
 ## 5. 한계와 다음 단계

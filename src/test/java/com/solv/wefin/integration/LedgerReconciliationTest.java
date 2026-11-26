@@ -33,6 +33,7 @@ import com.solv.wefin.domain.quest.service.QuestProgressService;
 import com.solv.wefin.domain.trading.account.service.VirtualAccountService;
 import com.solv.wefin.domain.trading.ledger.entity.CashLedgerType;
 import com.solv.wefin.domain.trading.ledger.service.CashLedgerService;
+import com.solv.wefin.domain.trading.ledger.service.LedgerAdjustmentService;
 import com.solv.wefin.domain.trading.market.service.MarketService;
 import com.solv.wefin.domain.trading.matching.service.LimitOrderMatchingService;
 import com.solv.wefin.domain.trading.order.dto.OrderInfo;
@@ -71,6 +72,8 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 	private CashLedgerService cashLedgerService;
 	@Autowired
 	private ReconciliationService reconciliationService;
+	@Autowired
+	private LedgerAdjustmentService adjustmentService;
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
@@ -294,6 +297,56 @@ class LedgerReconciliationTest extends IntegrationTestBase {
 
 		assertThatThrownBy(() -> cashLedgerService.record(account, CashLedgerType.QUEST_REWARD, BigDecimal.TEN, null))
 			.isInstanceOf(IllegalTransactionStateException.class);
+	}
+
+	@Test
+	void 원장_기록이_빠진_계좌는_잔고를_두고_원장에만_조정_항목을_넣어_맞춘다() {
+		Long account = createAccount();
+		BigDecimal before = balance(account);
+		jdbcTemplate.update("DELETE FROM cash_ledger WHERE virtual_account_id = ? AND entry_type = 'ACCOUNT_OPEN'", account);
+		assertThat(mismatchesOf(reconciliationService.run(ReconciliationRun.Trigger.MANUAL), account)).hasSize(1);
+
+		adjustmentService.adjust(account, before, false, "계좌 개설 원장 누락 확인, 개설금 인정");
+
+		assertThat(mismatchesOf(reconciliationService.run(ReconciliationRun.Trigger.MANUAL), account)).isEmpty();
+		assertThat(balance(account)).isEqualByComparingTo(before);
+	}
+
+	@Test
+	void 잔고가_잘못_바뀐_계좌는_바뀐_금액을_원장에_인정한_뒤_되돌리는_조정으로_원래_잔고와_추적_기록을_남긴다() {
+		Long account = createAccount();
+		marketOrderFacade.buyMarket(account, stockId, 1, UUID.randomUUID().toString());
+		BigDecimal correct = balance(account);
+		jdbcTemplate.update("UPDATE virtual_account SET balance = balance + 1000 WHERE virtual_account_id = ?", account);
+
+		adjustmentService.adjust(account, new BigDecimal("1000"), false, "원장 없이 늘어난 1,000원 인정");
+		adjustmentService.adjust(account, new BigDecimal("-1000"), true, "잘못 늘어난 1,000원 회수");
+
+		assertThat(mismatchesOf(reconciliationService.run(ReconciliationRun.Trigger.MANUAL), account)).isEmpty();
+		assertThat(balance(account)).isEqualByComparingTo(correct);
+		assertThat(jdbcTemplate.queryForList("SELECT memo FROM cash_ledger WHERE virtual_account_id = ? "
+			+ "AND entry_type = 'ADJUSTMENT' ORDER BY ledger_id", String.class, account))
+			.containsExactly("원장 없이 늘어난 1,000원 인정", "잘못 늘어난 1,000원 회수");
+	}
+
+	@Test
+	void 조정은_사유_없이_남길_수_없고_잔고보다_많이_뺄_수도_없다() {
+		Long account = createAccount();
+		BigDecimal before = balance(account);
+
+		assertThatThrownBy(() -> adjustmentService.adjust(account, BigDecimal.TEN, false, " "))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode").isEqualTo(ErrorCode.INVALID_INPUT);
+		assertThatThrownBy(() -> adjustmentService.adjust(account, before.add(BigDecimal.ONE).negate(), true, "회수"))
+			.isInstanceOf(BusinessException.class)
+			.extracting("errorCode").isEqualTo(ErrorCode.ORDER_INSUFFICIENT_BALANCE);
+		// 서비스를 거치지 않아도 DB 제약이 사유 없는 조정을 막는다
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"INSERT INTO cash_ledger (virtual_account_id, entry_type, amount) VALUES (?, 'ADJUSTMENT', 10)", account))
+			.hasMessageContaining("ck_cash_ledger_adjustment_memo");
+
+		assertThat(balance(account)).isEqualByComparingTo(before);
+		assertThat(ledgerTypes(account)).doesNotContain("ADJUSTMENT");
 	}
 
 	private Long createAccount() {
