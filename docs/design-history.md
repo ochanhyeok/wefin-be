@@ -1,6 +1,6 @@
 # 주문·체결·자산 모듈 변경 기록
 
-팀 프로젝트(S0L-V/wefin-be)에서 제가 맡은 주문·체결·자산 모듈을 개인 포크에서 어떻게 바꿨는지, 각 단계에서 무엇을 보고 어떤 판단을 했는지 정리한 문서입니다.
+팀 프로젝트(S0L-V/wefin-be)에서 제가 맡은 주문·체결·자산 모듈을 수료 후 개인 작업으로 어떻게 바꿨는지, 각 단계에서 무엇을 보고 어떤 판단을 했는지 정리한 문서입니다.
 결정 하나하나의 근거는 ADR에 있고, 이 문서는 전체 흐름과 면접에서 설명할 순서를 기준으로 묶었습니다.
 
 | 시점 | 기준 | 내용 |
@@ -19,11 +19,73 @@ timeline
     v1 (11/08) : 락 전략 3종 벤치마크 → 원자적 UPDATE
                : Redis SETNX + DB UNIQUE 멱등
                : 지정가 매칭 부분 인덱스
-    v2 (11/25~) : 측정 환경 보정, V54 무중단 인덱스
-                : 멱등 재설계 (계좌별 키, 재전송, 리스)
+    v2 (11/25~) : 측정 환경 보정, V54 인덱스를 CONCURRENTLY로
+                : 멱등 재설계 (계좌 단위 키, 첫 응답 반환, 선점 만료)
                 : 현금 원장과 일일 대사
                 : 시세 조회를 트랜잭션 밖으로, 서킷 브레이커
 ```
+
+---
+
+## 한눈에 보기: 기존 구조 → 재설계 구조
+
+시장가 매수 한 건이 지나가는 길과, 그 주변 배치를 기준으로 그렸습니다. 번호는 실행 순서입니다.
+
+### 기존 (팀 프로젝트, `fa8f2ac4`)
+
+```mermaid
+flowchart LR
+    H[(한투 API)]
+    ACC[(virtual_account)]
+    DB[("orders · trade · portfolio")]
+    C[클라이언트] -->|"POST 시장가 매수"| OC[OrderController]
+    OC --> OS
+    subgraph TX["@Transactional 하나: 처음부터 끝까지 커넥션 점유"]
+      OS[OrderService.buyMarket]
+    end
+    OS -->|"① 현재가 조회<br/>커넥션 타임아웃 없음, 리드 5초"| H
+    OS -->|"② SELECT ... FOR UPDATE<br/>읽고 검증한 뒤 차감"| ACC
+    OS -->|"③ 주문·체결·보유종목 저장"| DB
+    TICK[시세 틱] --> M["지정가 매칭<br/>FOR UPDATE"] -->|"인덱스 없음, 풀 스캔"| DB
+    N1["중복 요청 방어 없음<br/>잔고 변경 기록 없음<br/>잔고 검증 배치 없음"]:::gap
+    classDef gap fill:#fdecec,stroke:#d33,color:#900
+```
+
+### 재설계 (2026.11)
+
+```mermaid
+flowchart LR
+    H[(한투 API)]
+    IK[(order_idempotency)]
+    ACC[(virtual_account)]
+    L[(cash_ledger)]
+    DB[("orders · trade · portfolio")]
+    MM[(reconciliation_mismatch)]
+    C[클라이언트] -->|"POST 시장가 매수<br/>+ 멱등키"| OC[OrderController]
+    OC --> F[MarketOrderFacade]
+    F -->|"① 멱등키 선점<br/>INSERT ON CONFLICT, 바로 커밋"| IK
+    F -->|"② 현재가 조회, 트랜잭션 밖<br/>커넥션 1초·리드 2초, 서킷 브레이커"| H
+    F -->|"③"| OS
+    subgraph TX["주문 트랜잭션: DB 작업만"]
+      OS[OrderService.buyMarket]
+    end
+    OS -->|"④ UPDATE ... WHERE balance >= :amount"| ACC
+    OS -->|"⑤ 원장 INSERT (MANDATORY)"| L
+    OS -->|"⑥ 주문·체결·보유종목 저장"| DB
+    OS -->|"⑦ DONE + 첫 응답 저장<br/>펜싱 토큰이 맞을 때만"| IK
+    TICK[시세 틱] --> M["지정가 매칭<br/>FOR UPDATE"] -->|"부분 인덱스<br/>status IN (PENDING, PARTIAL)"| DB
+    REC["대사 배치<br/>평일 16:10"] -->|"잔고 = 원장 합계<br/>주문별 원장 = 체결 내역"| L
+    REC -->|"불일치는 기록만"| MM
+    ADM[관리자] -->|"원인 확인 후 사유와 함께<br/>ADJUSTMENT INSERT"| L
+```
+
+| 문제 | 기존 | 재설계 | 자세히 |
+|---|---|---|---|
+| 한투가 느려지면 | 트랜잭션 안에서 기다려 커넥션 풀 고갈, 무관한 조회까지 지연 | 조회를 트랜잭션 밖으로, 짧은 타임아웃과 서킷 브레이커. 무관한 조회 4,896ms → 30ms | 5절 |
+| 같은 주문이 두 번 오면 | 두 번 체결 | 멱등키로 한 번만 체결, 다시 오면 저장한 첫 응답 반환 | 3절 |
+| 잔고가 틀리면 | 알 방법이 없음 | 원장과 매일 대사로 주문번호까지 추적, 관리자가 조정 항목으로 보정 | 4절 |
+| 잔고 동시 차감 | 비관적 락으로 읽고 검증 후 차감 | 원자적 UPDATE 한 문장, 동시 20건 처리량 1.9배 | 1절 |
+| 지정가 매칭 조회 | 풀 스캔 | 부분 인덱스, 100만 건 89ms → 0.45ms | 2절 |
 
 ---
 
