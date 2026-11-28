@@ -10,16 +10,17 @@ AI 금융 뉴스 브리핑 및 모의 투자 서비스 백엔드 시스템
 
 
 
-## 이 포크에서 바꾼 것 (오찬혁, 2026.11)
+## 수료 후 다시 설계한 것 (오찬혁, 2026.11)
 
-팀 프로젝트([S0L-V/wefin-be](https://github.com/S0L-V/wefin-be))에서 제가 맡은 주문·체결·자산 모듈을, 장애와 동시 요청 상황 기준으로 다시 설계한 개인 포크입니다.
-팀 프로젝트의 주문 모듈은 직접 구현했고, 이 저장소의 재설계는 Claude Code와 페어로 진행했습니다. 설계 대안은 테스트와 벤치마크 결과로 비교해 정했고, 코드 리뷰 지적은 테스트로 확인한 뒤 반영 여부를 정했습니다.
+팀 프로젝트([S0L-V/wefin-be](https://github.com/S0L-V/wefin-be))에서 제가 맡은 주문·체결·자산 모듈을, 장애와 동시 요청 상황 기준으로 수료 후 개인 작업으로 다시 설계한 저장소입니다.
+팀 프로젝트의 주문 모듈은 직접 구현했고, 이 저장소의 재설계는 Claude Code와 페어로 진행했습니다. 설계 대안은 테스트와 벤치마크 결과로 비교해 정했고, 코드 리뷰는 CodeRabbit에 증권 거래 기준을 직접 적어 받았고, 지적은 테스트로 확인한 뒤 반영 여부를 정했습니다.
 결정 과정과 버린 대안은 ADR에, 코드 변경은 PR에 있습니다. 팀 프로젝트 원래 코드에서 무엇을 어떤 판단으로 바꿨는지는 [변경 기록](docs/design-history.md)에 다이어그램과 함께 정리했습니다. 비슷한 문제를 다룬 토스·Stripe·G마켓·컬리 글과의 비교는 [참고한 기술 글](docs/references.md)에 있습니다.
 
 | 주제 | 핵심 | 근거 |
 |---|---|---|
-| 지정가 매칭 인덱스 | 100만 건에서 89ms → 0.45ms, 부분 인덱스로 크기 1/9. 운영 테이블 무중단 적용(CONCURRENTLY) 중 Flyway 멈춤 해결 | [PR #2](https://github.com/ochanhyeok/wefin-be/pull/2) |
-| 주문 멱등성 재설계 | 계좌별 키, 요청 지문(422), 첫 응답 재전송, 거절(4xx)·장애(5xx) 구분, 처리 중 서버 다운 시 리스 | [ADR 0001](docs/adr/0001-order-idempotency.md) · [PR #3](https://github.com/ochanhyeok/wefin-be/pull/3) |
+| 지정가 매칭 인덱스 | 100만 건에서 89ms → 0.45ms, 부분 인덱스로 크기 1/9. CONCURRENTLY 적용 중 Flyway advisory lock과 서로 기다려 멈춘 마이그레이션 해결 | [PR #2](https://github.com/ochanhyeok/wefin-be/pull/2) |
+| 잔고 차감 락 전략 | 비관적·낙관적·원자적 UPDATE를 같은 조건에서 측정, 원자적 UPDATE로 전환 (동시 20건 처리량 1.9배) | [변경 기록 1절](docs/design-history.md) |
+| 주문 멱등성 재설계 | 계좌 단위 멱등키, 같은 키에 다른 요청이면 422, 완료된 요청엔 저장한 첫 응답 반환, 거절(4xx)·장애(5xx) 구분, 60초 선점 만료와 펜싱 토큰 | [ADR 0001](docs/adr/0001-order-idempotency.md) · [PR #3](https://github.com/ochanhyeok/wefin-be/pull/3) |
 | 현금 원장과 일일 대사 | 잔고를 바꾸는 10개 경로를 원장에 기록, 계좌·주문 대사, 배치의 동시 실행·중단·실패 처리, 불일치는 관리자가 조정 항목으로 보정 | [ADR 0002](docs/adr/0002-cash-ledger-reconciliation.md) · [PR #4](https://github.com/ochanhyeok/wefin-be/pull/4) |
 | 외부 시세 API 장애 격리 | 트랜잭션 밖 조회, 타임아웃, 서킷 브레이커. 한투 무응답 시 무관한 조회 최대 4,896ms → 30ms | [ADR 0003](docs/adr/0003-market-api-isolation.md) · [PR #5](https://github.com/ochanhyeok/wefin-be/pull/5) |
 
